@@ -42,7 +42,7 @@ export default function HomePage() {
       {/* Header */}
       <div className="bg-gradient-to-br from-[#1e3a5f] to-[#152d4a] text-white px-5 pt-8 pb-7 rounded-b-3xl shadow-lg">
         <div className="flex items-center gap-3 mb-2">
-          <img src="/logo.png" alt="AUZI F.C." className="w-12 h-12" />
+          <img src={import.meta.env.BASE_URL + 'logo.png'} alt="AUZI F.C." className="w-12 h-12" />
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">오지FC</h1>
             <p className="text-blue-200 text-xs">AUZI F.C.</p>

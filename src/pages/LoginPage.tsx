@@ -53,7 +53,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
     return (
       <div className="min-h-screen bg-[#1e3a5f] flex flex-col items-center justify-center px-6">
         <div className="w-full max-w-sm flex flex-col items-center">
-          <img src="/logo.png" alt="AUZI F.C." className="w-32 h-32 mb-6 drop-shadow-lg" />
+          <img src={import.meta.env.BASE_URL + 'logo.png'} alt="AUZI F.C." className="w-32 h-32 mb-6 drop-shadow-lg" />
           <h1 className="text-3xl font-extrabold text-white tracking-tight mb-1">오지FC</h1>
           <p className="text-sm text-blue-200 mb-8">AUZI F.C. | SINCE 2026</p>
 
@@ -88,7 +88,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="min-h-screen bg-[#1e3a5f] flex flex-col items-center px-6 py-12">
       <div className="w-full max-w-sm flex flex-col items-center">
-        <img src="/logo.png" alt="AUZI F.C." className="w-28 h-28 mb-5 drop-shadow-lg" />
+        <img src={import.meta.env.BASE_URL + 'logo.png'} alt="AUZI F.C." className="w-28 h-28 mb-5 drop-shadow-lg" />
         <h1 className="text-3xl font-extrabold text-white tracking-tight mb-1">오지FC</h1>
         <p className="text-sm text-blue-200 mb-8">AUZI F.C. | SINCE 2026</p>
 
