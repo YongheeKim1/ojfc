@@ -1,80 +1,133 @@
+import { db } from './firebase';
+import {
+  collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
+  query, orderBy
+} from 'firebase/firestore';
 import { Member, Guest, Match, Position, POSITIONS } from './types';
 
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(`ojifc_${key}`);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
+// ──────────────────────────────────────────
+// 로컬 캐시 (동기 접근용) + Firestore 동기화
+// ──────────────────────────────────────────
+
+let membersCache: Member[] = [];
+let guestsCache: Guest[] = [];
+let matchesCache: Match[] = [];
+let initialized = false;
+
+type Listener = () => void;
+const listeners: Set<Listener> = new Set();
+
+export function subscribe(fn: Listener): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
 }
 
-function save<T>(key: string, data: T) {
-  localStorage.setItem(`ojifc_${key}`, JSON.stringify(data));
+function notify() {
+  listeners.forEach(fn => fn());
+}
+
+// Firestore 실시간 구독 시작
+export function initFirestore() {
+  if (initialized) return;
+  initialized = true;
+
+  // Members
+  const membersRef = collection(db, 'members');
+  onSnapshot(query(membersRef, orderBy('createdAt', 'asc')), (snap) => {
+    membersCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Member));
+    notify();
+  });
+
+  // Guests
+  const guestsRef = collection(db, 'guests');
+  onSnapshot(query(guestsRef, orderBy('createdAt', 'asc')), (snap) => {
+    guestsCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Guest));
+    notify();
+  });
+
+  // Matches
+  const matchesRef = collection(db, 'matches');
+  onSnapshot(query(matchesRef, orderBy('date', 'desc')), (snap) => {
+    matchesCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
+    notify();
+  });
+}
+
+// 초기 데이터 로드 (한 번만)
+export async function loadInitialData() {
+  const [membersSnap, guestsSnap, matchesSnap] = await Promise.all([
+    getDocs(query(collection(db, 'members'), orderBy('createdAt', 'asc'))),
+    getDocs(query(collection(db, 'guests'), orderBy('createdAt', 'asc'))),
+    getDocs(query(collection(db, 'matches'), orderBy('date', 'desc'))),
+  ]);
+  membersCache = membersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Member));
+  guestsCache = guestsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Guest));
+  matchesCache = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
 }
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-// Current user (login)
+// ──────────────────────────────────────────
+// Current user (로컬만 - 기기별 로그인)
+// ──────────────────────────────────────────
+
 export function getCurrentUser(): Member | null {
-  return load<Member | null>('currentUser', null);
+  try {
+    const raw = localStorage.getItem('ojifc_currentUser');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
 export function setCurrentUser(member: Member) {
-  save('currentUser', member);
+  localStorage.setItem('ojifc_currentUser', JSON.stringify(member));
 }
 
 export function logout() {
   localStorage.removeItem('ojifc_currentUser');
 }
 
-// Members
+// ──────────────────────────────────────────
+// Members (Firestore)
+// ──────────────────────────────────────────
+
 export function getMembers(): Member[] {
-  return load<Member[]>('members', []);
+  return membersCache;
 }
 
-export function saveMember(member: Omit<Member, 'id' | 'pomCount' | 'createdAt'>): Member {
-  const members = getMembers();
+export async function saveMember(member: Omit<Member, 'id' | 'pomCount' | 'createdAt'>): Promise<Member> {
   const newMember: Member = {
     ...member,
     id: genId(),
     pomCount: 0,
     createdAt: Date.now(),
   };
-  members.push(newMember);
-  save('members', members);
+  await setDoc(doc(db, 'members', newMember.id), newMember);
   return newMember;
 }
 
-export function updateMember(id: string, updates: Partial<Member>) {
-  const members = getMembers();
-  const idx = members.findIndex(m => m.id === id);
-  if (idx !== -1) {
-    members[idx] = { ...members[idx], ...updates };
-    save('members', members);
-  }
-  return members;
+export async function updateMember(id: string, updates: Partial<Member>) {
+  await updateDoc(doc(db, 'members', id), updates as Record<string, never>);
 }
 
-export function deleteMember(id: string) {
-  const members = getMembers().filter(m => m.id !== id);
-  save('members', members);
-  return members;
+export async function deleteMember(id: string) {
+  await deleteDoc(doc(db, 'members', id));
 }
 
-// Guests (용병)
+// ──────────────────────────────────────────
+// Guests (Firestore)
+// ──────────────────────────────────────────
+
 export function getGuests(): Guest[] {
-  return load<Guest[]>('guests', []);
+  return guestsCache;
 }
 
 export function getGuestsByMatch(matchId: string): Guest[] {
-  return getGuests().filter(g => g.matchId === matchId);
+  return guestsCache.filter(g => g.matchId === matchId);
 }
 
-export function saveGuest(guest: { name: string; phone: string; positions: Position[]; matchId: string }): Guest {
-  const guests = getGuests();
+export async function saveGuest(guest: { name: string; phone: string; positions: Position[]; matchId: string }): Promise<Guest> {
   const newGuest: Guest = {
     id: 'guest_' + genId(),
     name: guest.name,
@@ -84,51 +137,44 @@ export function saveGuest(guest: { name: string; phone: string; positions: Posit
     ratings: [],
     createdAt: Date.now(),
   };
-  guests.push(newGuest);
-  save('guests', guests);
+  await setDoc(doc(db, 'guests', newGuest.id), newGuest);
   return newGuest;
 }
 
-export function addGuestRating(guestId: string, score: number, comment: string) {
-  const guests = getGuests();
-  const guest = guests.find(g => g.id === guestId);
+export async function addGuestRating(guestId: string, score: number, comment: string) {
+  const guest = guestsCache.find(g => g.id === guestId);
   if (guest) {
-    guest.ratings.push({ score, comment, date: Date.now() });
-    save('guests', guests);
+    const ratings = [...guest.ratings, { score, comment, date: Date.now() }];
+    await updateDoc(doc(db, 'guests', guestId), { ratings });
   }
-  return guests;
 }
 
-export function deleteGuest(id: string) {
-  const guests = getGuests().filter(g => g.id !== id);
-  save('guests', guests);
-  return guests;
+export async function deleteGuest(id: string) {
+  await deleteDoc(doc(db, 'guests', id));
 }
 
-// Matches
+// ──────────────────────────────────────────
+// Matches (Firestore)
+// ──────────────────────────────────────────
+
 export function getMatches(): Match[] {
-  return load<Match[]>('matches', []);
+  return matchesCache;
 }
 
-export function saveMatch(match: Omit<Match, 'id'>) {
-  const matches = getMatches();
+export async function saveMatch(match: Omit<Match, 'id'>): Promise<Match> {
   const newMatch: Match = { ...match, id: genId() };
-  matches.unshift(newMatch);
-  save('matches', matches);
+  await setDoc(doc(db, 'matches', newMatch.id), newMatch);
   return newMatch;
 }
 
-export function updateMatch(id: string, updates: Partial<Match>) {
-  const matches = getMatches();
-  const idx = matches.findIndex(m => m.id === id);
-  if (idx !== -1) {
-    matches[idx] = { ...matches[idx], ...updates };
-    save('matches', matches);
-  }
-  return matches;
+export async function updateMatch(id: string, updates: Partial<Match>) {
+  await updateDoc(doc(db, 'matches', id), updates as Record<string, never>);
 }
 
-// Formation templates
+// ──────────────────────────────────────────
+// Formation & Lineup (로컬 로직 - 변경 없음)
+// ──────────────────────────────────────────
+
 export interface FormationSlot {
   id: string;
   label: string;
@@ -200,12 +246,10 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// 포지션 카테고리 가져오기
 function getPosCategory(pos: Position): string {
   return POSITIONS.find(p => p.value === pos)?.category || 'MF';
 }
 
-// 슬롯 라벨의 카테고리
 function getSlotCategory(slotLabel: string): string {
   if (slotLabel === 'GK') return 'GK';
   if (['CB', 'LB', 'RB'].includes(slotLabel)) return 'DF';
@@ -214,7 +258,6 @@ function getSlotCategory(slotLabel: string): string {
   return 'MF';
 }
 
-// 선호 포지션 매칭 우선순위
 const slotPreference: Record<string, string[]> = {
   'GK': ['GK'],
   'LB': ['LB', 'CB', 'LM'],
@@ -231,16 +274,14 @@ const slotPreference: Record<string, string[]> = {
   'CF': ['CF', 'ST', 'CAM'],
 };
 
-// 멤버+용병을 포지션 정보로 가져오기
 export function getPlayerInfo(id: string): { name: string; positions: Position[] } | null {
-  const member = getMembers().find(m => m.id === id);
+  const member = membersCache.find(m => m.id === id);
   if (member) return { name: member.name, positions: member.positions || [] };
-  const guest = getGuests().find(g => g.id === id);
+  const guest = guestsCache.find(g => g.id === id);
   if (guest) return { name: guest.name + ' (용병)', positions: guest.positions || [] };
   return null;
 }
 
-// 선호 포지션 기반 라인업 자동 배치
 export function autoAssignLineup(
   playerIds: string[],
   formation: string
@@ -254,38 +295,25 @@ export function autoAssignLineup(
   const assignment: Record<string, string> = {};
   const used = new Set<string>();
 
-  // Pass 1: 정확한 포지션 매치 (선호 포지션 중 하나가 슬롯과 일치)
   for (const slot of slots) {
     const exact = players.find(p => !used.has(p.id) && p.positions.includes(slot.label as Position));
-    if (exact) {
-      assignment[slot.id] = exact.id;
-      used.add(exact.id);
-    }
+    if (exact) { assignment[slot.id] = exact.id; used.add(exact.id); }
   }
 
-  // Pass 2: 같은 카테고리 내에서 매치 (공격↔공격, 수비↔수비)
   for (const slot of slots) {
     if (assignment[slot.id]) continue;
     const preferred = slotPreference[slot.label] || [];
     const match = players.find(p => !used.has(p.id) && p.positions.some(pos => preferred.includes(pos)));
-    if (match) {
-      assignment[slot.id] = match.id;
-      used.add(match.id);
-    }
+    if (match) { assignment[slot.id] = match.id; used.add(match.id); }
   }
 
-  // Pass 3: 같은 라인(카테고리)에서 매치
   for (const slot of slots) {
     if (assignment[slot.id]) continue;
     const slotCat = getSlotCategory(slot.label);
     const match = players.find(p => !used.has(p.id) && p.positions.some(pos => getPosCategory(pos) === slotCat));
-    if (match) {
-      assignment[slot.id] = match.id;
-      used.add(match.id);
-    }
+    if (match) { assignment[slot.id] = match.id; used.add(match.id); }
   }
 
-  // Pass 4: 아무나 배치
   const remaining = shuffle(players.filter(p => !used.has(p.id)));
   let ri = 0;
   for (const slot of slots) {
@@ -298,7 +326,6 @@ export function autoAssignLineup(
   return assignment;
 }
 
-// 4쿼터 라인업 생성 (로테이션)
 export function generateQuarterLineups(
   playerIds: string[],
   formation: string
@@ -307,13 +334,11 @@ export function generateQuarterLineups(
   const perQuarter = Math.min(11, total);
 
   return [0, 1, 2, 3].map((qi) => {
-    // 로테이션: 쿼터마다 다른 11명이 뛰도록
     const offset = Math.floor((qi * perQuarter) / 2) % total;
     const rotated = [...playerIds.slice(offset), ...playerIds.slice(0, offset)];
     const shuffledRotated = shuffle(rotated);
     const playingIds = shuffledRotated.slice(0, perQuarter);
     const restingIds = shuffledRotated.slice(perQuarter);
-
     const playing = autoAssignLineup(playingIds, formation);
     return { playing, resting: restingIds };
   });

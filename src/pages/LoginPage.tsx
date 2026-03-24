@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LogIn } from 'lucide-react';
-import { getCurrentUser, setCurrentUser, getMembers, saveMember } from '../lib/store';
+import { getCurrentUser, setCurrentUser, getMembers, saveMember, subscribe } from '../lib/store';
 import { POSITIONS, Position, getPositionColor } from '../lib/types';
 import type { Member } from '../lib/types';
 
@@ -16,12 +16,15 @@ const CATEGORIES = ['GK', 'DF', 'MF', 'FW'];
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [name, setName] = useState('');
   const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<Member[]>(getMembers());
   const [currentUser, setCurrentUserState] = useState<Member | null>(null);
 
   useEffect(() => {
     setCurrentUserState(getCurrentUser());
     setMembers(getMembers());
+    return subscribe(() => {
+      setMembers(getMembers());
+    });
   }, []);
 
   const togglePosition = (pos: Position) => {
@@ -30,10 +33,10 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
     );
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || selectedPositions.length === 0) return;
-    const member = saveMember({ name: name.trim(), positions: selectedPositions });
+    const member = await saveMember({ name: name.trim(), positions: selectedPositions });
     setCurrentUser(member);
     onLogin();
   };

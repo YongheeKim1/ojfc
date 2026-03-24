@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   Users,
@@ -23,6 +23,7 @@ import {
   getPlayerInfo,
   FORMATIONS,
   generateQuarterLineups,
+  subscribe,
 } from '../lib/store';
 import type { FormationSlot } from '../lib/store';
 import type { Position, QuarterLineup } from '../lib/types';
@@ -231,18 +232,28 @@ export default function LineupPage() {
   const [searchParams] = useSearchParams();
   const matchId = searchParams.get('matchId');
 
-  // Data
-  const allMatches = useMemo(() => getMatches(), []);
+  // Data — synchronous reads from cache, refreshed via subscribe
+  const [allMatches, setAllMatches] = useState(getMatches());
+  const [members, setMembers] = useState(getMembers());
+  const [guests, setGuests] = useState(() => {
+    if (!matchId) return [] as ReturnType<typeof getGuestsByMatch>;
+    return getGuestsByMatch(matchId);
+  });
+
+  useEffect(() => {
+    return subscribe(() => {
+      setAllMatches(getMatches());
+      setMembers(getMembers());
+      if (matchId) {
+        setGuests(getGuestsByMatch(matchId));
+      }
+    });
+  }, [matchId]);
+
   const match = useMemo(() => {
     if (!matchId) return null;
     return allMatches.find((m) => m.id === matchId) ?? null;
   }, [matchId, allMatches]);
-
-  const members = useMemo(() => getMembers(), []);
-  const guests = useMemo(() => {
-    if (!matchId) return [];
-    return getGuestsByMatch(matchId);
-  }, [matchId]);
 
   // All players = members + guests for this match
   const allPlayers = useMemo(() => {
@@ -315,7 +326,7 @@ export default function LineupPage() {
   };
 
   // Generate lineup
-  const handleGenerateLineup = () => {
+  const handleGenerateLineup = async () => {
     if (!matchId) return;
     const ids = Array.from(selectedIds);
     const result = generateQuarterLineups(ids, formation);
@@ -329,7 +340,7 @@ export default function LineupPage() {
       resting: q.resting,
     }));
 
-    updateMatch(matchId, {
+    await updateMatch(matchId, {
       formation,
       quarters: quarterLineups,
       status: 'lineup',
@@ -337,7 +348,7 @@ export default function LineupPage() {
   };
 
   // Reshuffle
-  const handleReshuffle = () => {
+  const handleReshuffle = async () => {
     if (!matchId) return;
     const ids = Array.from(selectedIds);
     const result = generateQuarterLineups(ids, formation);
@@ -350,12 +361,12 @@ export default function LineupPage() {
       resting: q.resting,
     }));
 
-    updateMatch(matchId, { quarters: quarterLineups });
+    await updateMatch(matchId, { quarters: quarterLineups });
   };
 
   // Perform swap between two players (one or both can be on pitch / resting)
   const performSwap = useCallback(
-    (playerAId: string, playerBId: string) => {
+    async (playerAId: string, playerBId: string) => {
       if (!matchId) return;
       const qi = activeQuarter;
       const q = quarters[qi];
@@ -395,7 +406,7 @@ export default function LineupPage() {
         playing: qr.playing,
         resting: qr.resting,
       }));
-      updateMatch(matchId, { quarters: quarterLineups });
+      await updateMatch(matchId, { quarters: quarterLineups });
     },
     [matchId, activeQuarter, quarters]
   );
@@ -418,22 +429,22 @@ export default function LineupPage() {
     [swapSelectedId, performSwap]
   );
 
-  const handleStartMatch = () => {
+  const handleStartMatch = async () => {
     if (!matchId) return;
-    updateMatch(matchId, { status: 'playing' });
+    await updateMatch(matchId, { status: 'playing' });
     navigate(`/lineup?matchId=${matchId}`, { replace: true });
     window.location.reload();
   };
 
-  const handleEndMatch = () => {
+  const handleEndMatch = async () => {
     if (!matchId) return;
-    updateMatch(matchId, { status: 'voting' });
+    await updateMatch(matchId, { status: 'voting' });
     navigate('/match');
   };
 
-  const handleBackToSelect = () => {
+  const handleBackToSelect = async () => {
     if (!matchId) return;
-    updateMatch(matchId, {
+    await updateMatch(matchId, {
       status: 'scheduled',
       quarters: [],
     });

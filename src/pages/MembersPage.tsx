@@ -5,6 +5,7 @@ import {
   saveMember,
   updateMember,
   deleteMember,
+  subscribe,
 } from '../lib/store';
 import type { Member, Position } from '../lib/types';
 import { POSITIONS, getPositionColor } from '../lib/types';
@@ -31,7 +32,7 @@ function sortMembers(members: Member[]): Member[] {
 }
 
 export default function MembersPage() {
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<Member[]>(getMembers());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -40,6 +41,9 @@ export default function MembersPage() {
 
   useEffect(() => {
     setMembers(getMembers());
+    return subscribe(() => {
+      setMembers(getMembers());
+    });
   }, []);
 
   const resetForm = () => {
@@ -55,10 +59,9 @@ export default function MembersPage() {
     );
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!name.trim() || selectedPositions.length === 0) return;
-    saveMember({ name: name.trim(), positions: selectedPositions });
-    setMembers(getMembers());
+    await saveMember({ name: name.trim(), positions: selectedPositions });
     resetForm();
   };
 
@@ -69,20 +72,18 @@ export default function MembersPage() {
     setShowForm(true);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!editingId || !name.trim() || selectedPositions.length === 0) return;
-    const updated = updateMember(editingId, {
+    await updateMember(editingId, {
       name: name.trim(),
       positions: selectedPositions,
     });
-    setMembers(updated);
     resetForm();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
-    const updated = deleteMember(id);
-    setMembers(updated);
+    await deleteMember(id);
   };
 
   const sorted = sortMembers(members);

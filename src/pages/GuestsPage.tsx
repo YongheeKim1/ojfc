@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Star,
   Plus,
@@ -17,6 +17,7 @@ import {
   addGuestRating,
   deleteGuest,
   getMatches,
+  subscribe,
 } from '../lib/store';
 
 function StarRating({
@@ -65,8 +66,16 @@ const POSITION_CATEGORIES = [
 ];
 
 export default function GuestsPage() {
-  const [guests, setGuests] = useState<Guest[]>(getGuests);
-  const [matches] = useState<Match[]>(getMatches);
+  const [guests, setGuests] = useState<Guest[]>(getGuests());
+  const [matches, setMatches] = useState<Match[]>(getMatches());
+
+  useEffect(() => {
+    return subscribe(() => {
+      setGuests(getGuests());
+      setMatches(getMatches());
+    });
+  }, []);
+
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
@@ -88,15 +97,14 @@ export default function GuestsPage() {
     );
   };
 
-  const handleAddGuest = () => {
+  const handleAddGuest = async () => {
     if (!newName.trim() || !newMatchId || selectedPositions.length === 0) return;
-    saveGuest({
+    await saveGuest({
       name: newName.trim(),
       phone: newPhone.trim(),
       positions: selectedPositions,
       matchId: newMatchId,
     });
-    setGuests(getGuests());
     setNewName('');
     setNewPhone('');
     setSelectedPositions([]);
@@ -104,17 +112,15 @@ export default function GuestsPage() {
     setShowAddForm(false);
   };
 
-  const handleAddRating = (guestId: string) => {
+  const handleAddRating = async (guestId: string) => {
     if (ratingScore === 0) return;
-    addGuestRating(guestId, ratingScore, ratingComment.trim());
-    setGuests(getGuests());
+    await addGuestRating(guestId, ratingScore, ratingComment.trim());
     setRatingScore(0);
     setRatingComment('');
   };
 
-  const handleDelete = (id: string) => {
-    deleteGuest(id);
-    setGuests(getGuests());
+  const handleDelete = async (id: string) => {
+    await deleteGuest(id);
     setDeleteConfirmId(null);
     if (expandedId === id) setExpandedId(null);
   };

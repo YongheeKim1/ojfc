@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Trophy,
@@ -21,6 +21,7 @@ import {
   getCurrentUser,
   saveMatch,
   getGuestsByMatch,
+  subscribe,
 } from '../lib/store';
 
 function formatDate(timestamp: number): string {
@@ -84,9 +85,16 @@ const STATUS_CONFIG: Record<StatusKey, { label: string; color: string }> = {
 
 export default function MatchResultPage() {
   const navigate = useNavigate();
-  const [matches, setMatches] = useState<Match[]>(getMatches);
-  const [members] = useState<Member[]>(getMembers);
+  const [matches, setMatches] = useState<Match[]>(getMatches());
+  const [members, setMembers] = useState<Member[]>(getMembers());
   const currentUser = getCurrentUser();
+
+  useEffect(() => {
+    return subscribe(() => {
+      setMatches(getMatches());
+      setMembers(getMembers());
+    });
+  }, []);
 
   // Create form state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -104,8 +112,6 @@ export default function MatchResultPage() {
   // Expanded history card
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
-  const refreshMatches = () => setMatches(getMatches());
-
   // Categorize matches
   const activeMatches = matches.filter(
     (m) =>
@@ -116,9 +122,9 @@ export default function MatchResultPage() {
   );
   const doneMatches = matches.filter((m) => m.status === 'done');
 
-  const handleCreateMatch = () => {
+  const handleCreateMatch = async () => {
     if (!newTitle.trim() || !newLocation.trim()) return;
-    saveMatch({
+    await saveMatch({
       title: newTitle.trim(),
       date: new Date(newDate).getTime(),
       location: newLocation.trim(),
@@ -135,7 +141,6 @@ export default function MatchResultPage() {
     setNewDate(formatDateInput(Date.now()));
     setNewLocation('');
     setShowCreateForm(false);
-    refreshMatches();
   };
 
   // Voting helpers
@@ -151,14 +156,13 @@ export default function MatchResultPage() {
     }
   };
 
-  const handleEndGame = (matchId: string) => {
-    updateMatch(matchId, { status: 'voting' });
-    refreshMatches();
+  const handleEndGame = async (matchId: string) => {
+    await updateMatch(matchId, { status: 'voting' });
     const m = getMatches().find((x) => x.id === matchId);
     if (m) openVoting(m);
   };
 
-  const handleVote = () => {
+  const handleVote = async () => {
     if (!activeVotingId || !currentUser || !selectedVote) return;
     const match = matches.find((m) => m.id === activeVotingId);
     if (!match) return;
@@ -166,18 +170,16 @@ export default function MatchResultPage() {
     const newVoters = match.voters.includes(currentUser.id)
       ? match.voters
       : [...match.voters, currentUser.id];
-    updateMatch(activeVotingId, { votes: newVotes, voters: newVoters });
+    await updateMatch(activeVotingId, { votes: newVotes, voters: newVoters });
     setVoteSaved(true);
-    refreshMatches();
   };
 
-  const handleSaveScore = () => {
+  const handleSaveScore = async () => {
     if (!activeVotingId) return;
-    updateMatch(activeVotingId, { scoreA, scoreB });
-    refreshMatches();
+    await updateMatch(activeVotingId, { scoreA, scoreB });
   };
 
-  const handleFinalize = () => {
+  const handleFinalize = async () => {
     if (!activeVotingId) return;
     const match = matches.find((m) => m.id === activeVotingId);
     if (!match) return;
@@ -190,9 +192,8 @@ export default function MatchResultPage() {
         pomId = id;
       }
     }
-    updateMatch(activeVotingId, { pomId, status: 'done', scoreA, scoreB });
+    await updateMatch(activeVotingId, { pomId, status: 'done', scoreA, scoreB });
     setActiveVotingId(null);
-    refreshMatches();
   };
 
   /** Build the list of votable players: members + guests from quarters */

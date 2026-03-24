@@ -1,19 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Trophy, Users, Calendar, Star, Plus, Swords } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { getMembers, getMatches, getCurrentUser } from '../lib/store';
+import { getMembers, getMatches, getCurrentUser, subscribe } from '../lib/store';
 import { getPositionColor } from '../lib/types';
 import type { Member, Match } from '../lib/types';
 
 export default function HomePage() {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [matches, setMatches] = useState<Match[]>([]);
+  const [members, setMembers] = useState<Member[]>(getMembers());
+  const [matches, setMatches] = useState<Match[]>(getMatches());
   const [currentUser, setCurrentUser] = useState<Member | null>(null);
 
   useEffect(() => {
     setMembers(getMembers());
     setMatches(getMatches());
     setCurrentUser(getCurrentUser());
+    return subscribe(() => {
+      setMembers(getMembers());
+      setMatches(getMatches());
+      setCurrentUser(getCurrentUser());
+    });
   }, []);
 
   const latestMatch = matches.length > 0 ? matches[0] : null;
