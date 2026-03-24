@@ -47,7 +47,7 @@ export default function App() {
   // Redirect to login if not logged in (and not already on login page)
   if (!isLoggedIn && !isLoginPage) {
     return (
-      <div className="max-w-[480px] mx-auto min-h-screen bg-gray-50">
+      <div className="w-full min-h-screen bg-gray-50">
         <Routes>
           <Route path="*" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
@@ -59,7 +59,7 @@ export default function App() {
   // Login page (no nav bar)
   if (isLoginPage) {
     return (
-      <div className="max-w-[480px] mx-auto min-h-screen bg-gray-50">
+      <div className="w-full min-h-screen bg-gray-50">
         <Routes>
           <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
         </Routes>
@@ -68,7 +68,7 @@ export default function App() {
   }
 
   return (
-    <div className="max-w-[480px] mx-auto min-h-screen bg-gray-50 relative">
+    <div className="w-full min-h-screen bg-gray-50 relative">
       {/* Top bar with user info */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-100 px-4 py-2.5 flex items-center justify-between">
         <span className="text-sm font-bold text-[#1e3a5f]">오지FC</span>
@@ -116,7 +116,7 @@ export default function App() {
 
       {/* Bottom tab bar */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
-        <div className="max-w-[480px] mx-auto flex">
+        <div className="w-full flex">
           {tabs.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
