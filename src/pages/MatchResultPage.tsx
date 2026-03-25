@@ -12,11 +12,15 @@ import {
   LayoutGrid,
   Play,
   Clock,
+  Trash2,
+  Goal,
+  X,
 } from 'lucide-react';
-import { Match, Member, Guest, Position, getPositionColor } from '../lib/types';
+import { Match, Member, Guest, Position, GoalRecord, getPositionColor } from '../lib/types';
 import {
   getMatches,
   updateMatch,
+  deleteMatch,
   getMembers,
   getCurrentUser,
   saveMatch,
@@ -46,7 +50,6 @@ function getVoteCounts(votes: Record<string, string>): Record<string, number> {
   return counts;
 }
 
-/** Get all player IDs that appear in any quarter lineup for a match */
 function getMatchPlayerIds(match: Match): string[] {
   const ids = new Set<string>();
   for (const q of match.quarters) {
@@ -60,7 +63,6 @@ function getMatchPlayerIds(match: Match): string[] {
   return Array.from(ids);
 }
 
-/** Get player info: returns name and positions array */
 function getPlayerInfo(
   members: Member[],
   guests: Guest[],
@@ -101,24 +103,23 @@ export default function MatchResultPage() {
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState(formatDateInput(Date.now()));
   const [newLocation, setNewLocation] = useState('');
+  const [newOpponent, setNewOpponent] = useState('');
 
-  // Voting/score state for voting matches
+  // Voting/score state
   const [activeVotingId, setActiveVotingId] = useState<string | null>(null);
   const [scoreA, setScoreA] = useState(0);
   const [scoreB, setScoreB] = useState(0);
+  const [opponentName, setOpponentName] = useState('');
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [voteSaved, setVoteSaved] = useState(false);
+  const [goals, setGoals] = useState<GoalRecord[]>([]);
 
   // Expanded history card
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   // Categorize matches
   const activeMatches = matches.filter(
-    (m) =>
-      m.status === 'scheduled' ||
-      m.status === 'lineup' ||
-      m.status === 'playing' ||
-      m.status === 'voting'
+    (m) => m.status === 'scheduled' || m.status === 'lineup' || m.status === 'playing' || m.status === 'voting'
   );
   const doneMatches = matches.filter((m) => m.status === 'done');
 
@@ -132,6 +133,8 @@ export default function MatchResultPage() {
       quarters: [],
       scoreA: 0,
       scoreB: 0,
+      opponentName: newOpponent.trim(),
+      goals: [],
       pomId: null,
       voters: [],
       votes: {},
@@ -140,7 +143,14 @@ export default function MatchResultPage() {
     setNewTitle('');
     setNewDate(formatDateInput(Date.now()));
     setNewLocation('');
+    setNewOpponent('');
     setShowCreateForm(false);
+  };
+
+  const handleDeleteMatch = async (matchId: string) => {
+    if (!confirm('정말 이 매치를 삭제하시겠습니까?')) return;
+    await deleteMatch(matchId);
+    if (activeVotingId === matchId) setActiveVotingId(null);
   };
 
   // Voting helpers
@@ -148,6 +158,8 @@ export default function MatchResultPage() {
     setActiveVotingId(match.id);
     setScoreA(match.scoreA);
     setScoreB(match.scoreB);
+    setOpponentName(match.opponentName || '');
+    setGoals(match.goals || []);
     setSelectedVote(null);
     setVoteSaved(false);
     if (currentUser && match.votes[currentUser.id]) {
@@ -176,7 +188,15 @@ export default function MatchResultPage() {
 
   const handleSaveScore = async () => {
     if (!activeVotingId) return;
-    await updateMatch(activeVotingId, { scoreA, scoreB });
+    await updateMatch(activeVotingId, { scoreA, scoreB, opponentName, goals });
+  };
+
+  const handleAddGoal = (playerId: string) => {
+    setGoals(prev => [...prev, { playerId, quarter: 1 }]);
+  };
+
+  const handleRemoveGoal = (index: number) => {
+    setGoals(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleFinalize = async () => {
@@ -192,23 +212,32 @@ export default function MatchResultPage() {
         pomId = id;
       }
     }
-    await updateMatch(activeVotingId, { pomId, status: 'done', scoreA, scoreB });
+    // Update POM count
+    if (pomId) {
+      const member = members.find(m => m.id === pomId);
+      if (member) {
+        const { updateMember } = await import('../lib/store');
+        await updateMember(pomId, { pomCount: (member.pomCount || 0) + 1 });
+      }
+    }
+    await updateMatch(activeVotingId, { pomId, status: 'done', scoreA, scoreB, opponentName, goals });
     setActiveVotingId(null);
   };
 
-  /** Build the list of votable players: members + guests from quarters */
   const getVotablePlayers = (match: Match): { id: string; name: string; positions: Position[] }[] => {
     const playerIds = getMatchPlayerIds(match);
     const guests = getGuestsByMatch(match.id);
     const result: { id: string; name: string; positions: Position[] }[] = [];
-
     for (const pid of playerIds) {
       const info = getPlayerInfo(members, guests, pid);
-      if (info) {
-        result.push({ id: pid, name: info.name, positions: info.positions });
-      }
+      if (info) result.push({ id: pid, name: info.name, positions: info.positions });
     }
     return result;
+  };
+
+  const getTeamName = (match: Match, team: 'A' | 'B') => {
+    if (team === 'A') return '오지FC';
+    return (match.opponentName || '').trim() || '상대팀';
   };
 
   const votingMatch = activeVotingId ? matches.find((m) => m.id === activeVotingId) : null;
@@ -228,7 +257,7 @@ export default function MatchResultPage() {
       </div>
 
       <div className="p-4 space-y-5">
-        {/* ===== Section 1: Create New Match (collapsible) ===== */}
+        {/* Create New Match */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
@@ -238,69 +267,44 @@ export default function MatchResultPage() {
               <Plus size={18} className="text-[#16a34a]" />
               <span className="text-sm font-bold text-gray-800">새 매치 만들기</span>
             </div>
-            {showCreateForm ? (
-              <ChevronUp size={18} className="text-gray-400" />
-            ) : (
-              <ChevronDown size={18} className="text-gray-400" />
-            )}
+            {showCreateForm ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
           </button>
 
           {showCreateForm && (
             <div className="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
-              {/* Title */}
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">제목</label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="예: 3월 4주차 정기전"
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent"
-                />
+                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="예: 3월 4주차 정기전"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
               </div>
-
-              {/* Date */}
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">날짜</label>
-                <input
-                  type="date"
-                  value={newDate}
-                  onChange={(e) => setNewDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent"
-                />
+                <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
               </div>
-
-              {/* Location */}
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">장소</label>
-                <input
-                  type="text"
-                  value={newLocation}
-                  onChange={(e) => setNewLocation(e.target.value)}
-                  placeholder="예: 양재천 축구장"
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent"
-                />
+                <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="예: 양재천 축구장"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
               </div>
-
-              {/* Create button */}
-              <button
-                onClick={handleCreateMatch}
-                disabled={!newTitle.trim() || !newLocation.trim()}
-                className="w-full py-3 bg-[#16a34a] text-white rounded-xl text-sm font-bold hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-              >
-                <Plus size={16} />
-                매치 생성
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">상대팀 이름 (선택)</label>
+                <input type="text" value={newOpponent} onChange={(e) => setNewOpponent(e.target.value)} placeholder="미입력 시 '상대팀'"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
+              </div>
+              <button onClick={handleCreateMatch} disabled={!newTitle.trim() || !newLocation.trim()}
+                className="w-full py-3 bg-[#16a34a] text-white rounded-xl text-sm font-bold hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                <Plus size={16} /> 매치 생성
               </button>
             </div>
           )}
         </div>
 
-        {/* ===== Section 2: Active/Upcoming Matches ===== */}
+        {/* Active Matches */}
         {activeMatches.length > 0 && (
           <div>
             <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-              <Clock size={15} className="text-[#1e3a5f]" />
-              진행 중인 매치
+              <Clock size={15} className="text-[#1e3a5f]" /> 진행 중인 매치
             </h2>
             <div className="space-y-3">
               {activeMatches.map((match) => {
@@ -308,176 +312,153 @@ export default function MatchResultPage() {
                 const isVotingOpen = activeVotingId === match.id && match.status === 'voting';
 
                 return (
-                  <div
-                    key={match.id}
-                    className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
-                  >
-                    {/* Card header */}
+                  <div key={match.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                     <div className="p-4">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-bold text-gray-900 truncate">
-                            {match.title}
-                          </h3>
+                          <h3 className="text-sm font-bold text-gray-900 truncate">{match.title}</h3>
                           <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <Calendar size={12} />
-                              {formatDate(match.date)}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MapPin size={12} />
-                              {match.location}
-                            </span>
+                            <span className="flex items-center gap-1"><Calendar size={12} />{formatDate(match.date)}</span>
+                            <span className="flex items-center gap-1"><MapPin size={12} />{match.location}</span>
                           </div>
                         </div>
-                        <span
-                          className={`text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0 ml-2 ${statusCfg.color}`}
-                        >
-                          {statusCfg.label}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${statusCfg.color}`}>{statusCfg.label}</span>
+                          <button onClick={() => handleDeleteMatch(match.id)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Action buttons */}
                       <div className="mt-3">
                         {match.status === 'scheduled' && (
-                          <button
-                            onClick={() => navigate(`/lineup?matchId=${match.id}`)}
-                            className="w-full py-2.5 bg-[#1e3a5f] text-white rounded-xl text-xs font-bold hover:bg-[#16304a] transition-colors flex items-center justify-center gap-2"
-                          >
-                            <LayoutGrid size={14} />
-                            라인업 편성
+                          <button onClick={() => navigate(`/lineup?matchId=${match.id}`)}
+                            className="w-full py-2.5 bg-[#1e3a5f] text-white rounded-xl text-xs font-bold hover:bg-[#16304a] transition-colors flex items-center justify-center gap-2">
+                            <LayoutGrid size={14} /> 라인업 편성
                           </button>
                         )}
                         {match.status === 'lineup' && (
-                          <button
-                            onClick={() => navigate(`/lineup?matchId=${match.id}`)}
-                            className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                          >
-                            <Eye size={14} />
-                            라인업 보기
+                          <button onClick={() => navigate(`/lineup?matchId=${match.id}`)}
+                            className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                            <Eye size={14} /> 라인업 보기
                           </button>
                         )}
                         {match.status === 'playing' && (
-                          <button
-                            onClick={() => handleEndGame(match.id)}
-                            className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
-                          >
-                            <Play size={14} />
-                            경기 종료
+                          <button onClick={() => handleEndGame(match.id)}
+                            className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+                            <Play size={14} /> 경기 종료
                           </button>
                         )}
                         {match.status === 'voting' && !isVotingOpen && (
-                          <button
-                            onClick={() => openVoting(match)}
-                            className="w-full py-2.5 bg-yellow-500 text-white rounded-xl text-xs font-bold hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2"
-                          >
-                            <Trophy size={14} />
-                            투표 / 결과 입력
+                          <button onClick={() => openVoting(match)}
+                            className="w-full py-2.5 bg-yellow-500 text-white rounded-xl text-xs font-bold hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2">
+                            <Trophy size={14} /> 투표 / 결과 입력
                           </button>
                         )}
                       </div>
                     </div>
 
-                    {/* Voting panel (expanded inline) */}
+                    {/* Voting panel */}
                     {isVotingOpen && votingMatch && (
                       <div className="border-t border-gray-100 p-4 space-y-4 bg-gray-50">
                         {/* Score Input */}
                         <div className="bg-white rounded-xl p-4">
-                          <h4 className="text-xs font-bold text-gray-700 mb-3 text-center">
-                            경기 점수
-                          </h4>
+                          <h4 className="text-xs font-bold text-gray-700 mb-3 text-center">경기 점수</h4>
+
+                          {/* Opponent name input */}
+                          <div className="mb-3">
+                            <input type="text" value={opponentName} onChange={(e) => setOpponentName(e.target.value)} placeholder="상대팀 이름 (미입력 시 '상대팀')"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs text-center focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
+                          </div>
+
                           <div className="flex items-center justify-center gap-4">
                             <div className="text-center">
-                              <p className="text-[10px] text-blue-600 font-bold mb-1.5">A팀</p>
-                              <input
-                                type="number"
-                                min={0}
-                                max={99}
-                                value={scoreA}
-                                onChange={(e) => setScoreA(Number(e.target.value))}
-                                className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent"
-                              />
+                              <p className="text-[10px] text-blue-600 font-bold mb-1.5">오지FC</p>
+                              <input type="number" min={0} max={99} value={scoreA} onChange={(e) => setScoreA(Number(e.target.value))}
+                                className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
                             </div>
                             <span className="text-xl font-bold text-gray-400 mt-5">vs</span>
                             <div className="text-center">
-                              <p className="text-[10px] text-red-600 font-bold mb-1.5">B팀</p>
-                              <input
-                                type="number"
-                                min={0}
-                                max={99}
-                                value={scoreB}
-                                onChange={(e) => setScoreB(Number(e.target.value))}
-                                className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent"
-                              />
+                              <p className="text-[10px] text-red-600 font-bold mb-1.5">{opponentName.trim() || '상대팀'}</p>
+                              <input type="number" min={0} max={99} value={scoreB} onChange={(e) => setScoreB(Number(e.target.value))}
+                                className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-transparent" />
                             </div>
                           </div>
-                          <button
-                            onClick={handleSaveScore}
-                            className="mt-3 w-full py-2 bg-[#1e3a5f] text-white rounded-lg text-xs font-bold hover:bg-[#16304a] transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <Check size={14} />
-                            점수 저장
+
+                          {/* Goal records */}
+                          <div className="mt-4">
+                            <h5 className="text-[11px] font-bold text-gray-600 mb-2 flex items-center gap-1">
+                              <Goal size={12} /> 골 기록
+                            </h5>
+                            {goals.length > 0 && (
+                              <div className="space-y-1 mb-2">
+                                {goals.map((goal, idx) => {
+                                  const guests = getGuestsByMatch(votingMatch.id);
+                                  const info = getPlayerInfo(members, guests, goal.playerId);
+                                  return (
+                                    <div key={idx} className="flex items-center justify-between bg-green-50 rounded-lg px-2.5 py-1.5">
+                                      <span className="text-xs font-medium text-gray-700">{info?.name || '알 수 없음'}</span>
+                                      <button onClick={() => handleRemoveGoal(idx)} className="text-gray-400 hover:text-red-500">
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1.5">
+                              {votablePlayers.map((player) => (
+                                <button key={player.id} onClick={() => handleAddGoal(player.id)}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-700 transition-colors font-medium">
+                                  + {player.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <button onClick={handleSaveScore}
+                            className="mt-3 w-full py-2 bg-[#1e3a5f] text-white rounded-lg text-xs font-bold hover:bg-[#16304a] transition-colors flex items-center justify-center gap-1.5">
+                            <Check size={14} /> 점수 저장
                           </button>
                         </div>
 
                         {/* POM Voting */}
                         <div className="bg-white rounded-xl p-4">
-                          <h4 className="text-xs font-bold text-gray-700 mb-1 text-center">
-                            POM 투표
-                          </h4>
-                          <p className="text-[10px] text-gray-400 text-center mb-3">
-                            이번 경기의 MVP를 선택하세요!
-                          </p>
+                          <h4 className="text-xs font-bold text-gray-700 mb-1 text-center">POM 투표</h4>
+                          <p className="text-[10px] text-gray-400 text-center mb-3">이번 경기의 MVP를 선택하세요!</p>
+
                           {votablePlayers.length === 0 ? (
-                            <p className="text-xs text-gray-400 text-center py-4">
-                              라인업에 배치된 선수가 없습니다.
-                            </p>
+                            <p className="text-xs text-gray-400 text-center py-4">라인업에 배치된 선수가 없습니다.</p>
                           ) : (
                             <div className="grid grid-cols-3 gap-2">
                               {votablePlayers.map((player) => {
                                 const isSelected = selectedVote === player.id;
                                 const voteCount = voteCounts[player.id] || 0;
-                                const pct = totalVotesForVoting > 0
-                                  ? (voteCount / totalVotesForVoting) * 100
-                                  : 0;
+                                const pct = totalVotesForVoting > 0 ? (voteCount / totalVotesForVoting) * 100 : 0;
                                 return (
-                                  <button
-                                    key={player.id}
-                                    onClick={() => {
-                                      if (!voteSaved) setSelectedVote(player.id);
-                                    }}
+                                  <button key={player.id}
+                                    onClick={() => { if (!voteSaved) setSelectedVote(player.id); }}
                                     disabled={voteSaved}
                                     className={`relative flex flex-col items-center p-2.5 rounded-xl border-2 transition-all ${
-                                      isSelected
-                                        ? 'border-[#16a34a] bg-green-50 shadow-md'
-                                        : 'border-gray-100 bg-gray-50 hover:border-gray-300'
-                                    } ${voteSaved && !isSelected ? 'opacity-60' : ''}`}
-                                  >
+                                      isSelected ? 'border-[#16a34a] bg-green-50 shadow-md' : 'border-gray-100 bg-gray-50 hover:border-gray-300'
+                                    } ${voteSaved && !isSelected ? 'opacity-60' : ''}`}>
                                     <div className="w-9 h-9 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-xs font-bold mb-1">
                                       {player.name.charAt(0)}
                                     </div>
-                                    <span className="text-[11px] font-semibold text-gray-900 truncate w-full text-center">
-                                      {player.name}
-                                    </span>
+                                    <span className="text-[11px] font-semibold text-gray-900 truncate w-full text-center">{player.name}</span>
                                     <div className="flex flex-wrap gap-0.5 justify-center mt-0.5">
                                       {player.positions.map((pos) => (
-                                        <span
-                                          key={pos}
-                                          className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${getPositionColor(pos)}`}
-                                        >
-                                          {pos}
-                                        </span>
+                                        <span key={pos} className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${getPositionColor(pos)}`}>{pos}</span>
                                       ))}
                                     </div>
                                     {voteCount > 0 && (
                                       <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 bg-[#16a34a] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                                        {pct.toFixed(1)}%
+                                        {pct.toFixed(0)}%
                                       </span>
                                     )}
                                     {isSelected && (
-                                      <div className="absolute top-1 right-1">
-                                        <Check size={12} className="text-[#16a34a]" />
-                                      </div>
+                                      <div className="absolute top-1 right-1"><Check size={12} className="text-[#16a34a]" /></div>
                                     )}
                                   </button>
                                 );
@@ -485,7 +466,7 @@ export default function MatchResultPage() {
                             </div>
                           )}
 
-                          {/* Vote percentage results bar (during voting) */}
+                          {/* Vote percentage bars */}
                           {totalVotesForVoting > 0 && (
                             <div className="mt-3 space-y-1.5">
                               {votablePlayers
@@ -496,18 +477,11 @@ export default function MatchResultPage() {
                                   const pct = (voteCount / totalVotesForVoting) * 100;
                                   return (
                                     <div key={player.id} className="flex items-center gap-2">
-                                      <span className="text-[11px] font-semibold text-gray-700 w-16 truncate">
-                                        {player.name}
-                                      </span>
+                                      <span className="text-[11px] font-semibold text-gray-700 w-16 truncate">{player.name}</span>
                                       <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                        <div
-                                          className="h-full bg-[#16a34a] rounded-full transition-all"
-                                          style={{ width: `${pct}%` }}
-                                        />
+                                        <div className="h-full bg-[#16a34a] rounded-full transition-all" style={{ width: `${pct}%` }} />
                                       </div>
-                                      <span className="text-[10px] text-gray-500 w-12 text-right">
-                                        {pct.toFixed(1)}%
-                                      </span>
+                                      <span className="text-[10px] text-gray-500 w-12 text-right">{pct.toFixed(1)}%</span>
                                     </div>
                                   );
                                 })}
@@ -515,26 +489,18 @@ export default function MatchResultPage() {
                           )}
 
                           {!voteSaved && (
-                            <button
-                              onClick={handleVote}
-                              disabled={!selectedVote}
-                              className="mt-3 w-full py-2 bg-[#16a34a] text-white rounded-lg text-xs font-bold hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                            >
+                            <button onClick={handleVote} disabled={!selectedVote}
+                              className="mt-3 w-full py-2 bg-[#16a34a] text-white rounded-lg text-xs font-bold hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
                               투표하기
                             </button>
                           )}
                           {voteSaved && (
-                            <p className="mt-2 text-center text-[11px] text-green-600 font-medium">
-                              투표가 완료되었습니다!
-                            </p>
+                            <p className="mt-2 text-center text-[11px] text-green-600 font-medium">투표가 완료되었습니다!</p>
                           )}
                         </div>
 
-                        {/* Finalize */}
-                        <button
-                          onClick={handleFinalize}
-                          className="w-full py-3 bg-gradient-to-r from-[#1e3a5f] to-[#16a34a] text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-lg"
-                        >
+                        <button onClick={handleFinalize}
+                          className="w-full py-3 bg-gradient-to-r from-[#1e3a5f] to-[#16a34a] text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-lg">
                           결과 확정
                         </button>
                       </div>
@@ -546,7 +512,7 @@ export default function MatchResultPage() {
           </div>
         )}
 
-        {/* Empty state for active matches */}
+        {/* Empty state */}
         {activeMatches.length === 0 && (
           <div className="text-center py-8 text-gray-400">
             <Calendar size={36} className="mx-auto mb-2 text-gray-300" />
@@ -555,126 +521,102 @@ export default function MatchResultPage() {
           </div>
         )}
 
-        {/* ===== Section 3: Match History ===== */}
+        {/* Match History */}
         {doneMatches.length > 0 && (
           <div>
             <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-              <Trophy size={15} className="text-yellow-500" />
-              지난 매치
+              <Trophy size={15} className="text-yellow-500" /> 지난 매치
             </h2>
             <div className="space-y-2">
               {doneMatches.map((match) => {
-                const pomMember = match.pomId
-                  ? getMemberById(members, match.pomId)
-                  : null;
-                // Also check guests for POM
-                const pomGuest =
-                  !pomMember && match.pomId
-                    ? getGuestsByMatch(match.id).find((g) => g.id === match.pomId)
-                    : null;
-                const pomName = pomMember
-                  ? pomMember.name
-                  : pomGuest
-                    ? pomGuest.name + ' (용병)'
-                    : null;
-
+                const pomMember = match.pomId ? getMemberById(members, match.pomId) : null;
+                const pomGuest = !pomMember && match.pomId ? getGuestsByMatch(match.id).find((g) => g.id === match.pomId) : null;
+                const pomName = pomMember ? pomMember.name : pomGuest ? pomGuest.name + ' (용병)' : null;
                 const isExpanded = expandedHistoryId === match.id;
                 const matchVoteCounts = getVoteCounts(match.votes);
-                const matchTotalVotes = Object.values(matchVoteCounts).reduce(
-                  (a, b) => a + b,
-                  0
-                );
+                const matchTotalVotes = Object.values(matchVoteCounts).reduce((a, b) => a + b, 0);
+                const matchGoals = match.goals || [];
 
                 return (
-                  <div
-                    key={match.id}
-                    className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
-                  >
-                    <button
-                      onClick={() =>
-                        setExpandedHistoryId(isExpanded ? null : match.id)
-                      }
-                      className="w-full p-4 text-left"
-                    >
+                  <div key={match.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                    <button onClick={() => setExpandedHistoryId(isExpanded ? null : match.id)} className="w-full p-4 text-left">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-400">
-                          {formatDate(match.date)}
-                        </span>
+                        <span className="text-xs text-gray-400">{formatDate(match.date)}</span>
                         <div className="flex items-center gap-2">
                           {pomName && (
                             <span className="flex items-center gap-1 text-xs text-yellow-600 font-medium">
-                              <Trophy
-                                size={12}
-                                className="fill-yellow-500 text-yellow-500"
-                              />
-                              {pomName}
+                              <Trophy size={12} className="fill-yellow-500 text-yellow-500" />{pomName}
                             </span>
                           )}
-                          {isExpanded ? (
-                            <ChevronUp size={14} className="text-gray-400" />
-                          ) : (
-                            <ChevronDown size={14} className="text-gray-400" />
-                          )}
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteMatch(match.id); }}
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 transition-colors">
+                            <Trash2 size={12} />
+                          </button>
+                          {isExpanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
                         </div>
                       </div>
-                      <p className="text-sm font-bold text-gray-800 mb-0.5">
-                        {match.title}
-                      </p>
-                      <p className="text-xs text-gray-400 flex items-center gap-1 mb-2">
-                        <MapPin size={11} />
-                        {match.location}
-                      </p>
+                      <p className="text-sm font-bold text-gray-800 mb-0.5">{match.title}</p>
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mb-2"><MapPin size={11} />{match.location}</p>
                       <div className="flex items-center justify-center gap-3">
-                        <span className="text-xs font-bold text-blue-600">A팀</span>
-                        <span className="text-2xl font-extrabold text-gray-900">
-                          {match.scoreA} : {match.scoreB}
-                        </span>
-                        <span className="text-xs font-bold text-red-600">B팀</span>
+                        <span className="text-xs font-bold text-blue-600">오지FC</span>
+                        <span className="text-2xl font-extrabold text-gray-900">{match.scoreA} : {match.scoreB}</span>
+                        <span className="text-xs font-bold text-red-600">{getTeamName(match, 'B')}</span>
                       </div>
                     </button>
 
-                    {/* Expanded: vote breakdown with percentages */}
-                    {isExpanded && Object.keys(matchVoteCounts).length > 0 && (
-                      <div className="border-t border-gray-100 px-4 pb-4 pt-3">
-                        <h4 className="text-xs font-bold text-gray-600 mb-2">
-                          투표 결과
-                        </h4>
-                        <div className="space-y-2">
-                          {Object.entries(matchVoteCounts)
-                            .sort(([, a], [, b]) => b - a)
-                            .map(([id, count]) => {
-                              const guests = getGuestsByMatch(match.id);
-                              const info = getPlayerInfo(members, guests, id);
-                              const name = info ? info.name : '알 수 없음';
-                              const pct =
-                                matchTotalVotes > 0
-                                  ? (count / matchTotalVotes) * 100
-                                  : 0;
-                              return (
-                                <div key={id} className="flex items-center gap-2.5">
-                                  <div className="w-7 h-7 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                                    {name.charAt(0)}
+                    {isExpanded && (
+                      <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
+                        {/* Goal records */}
+                        {matchGoals.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-bold text-gray-600 mb-2 flex items-center gap-1"><Goal size={12} /> 골 기록</h4>
+                            <div className="space-y-1">
+                              {matchGoals.map((goal, idx) => {
+                                const guests = getGuestsByMatch(match.id);
+                                const info = getPlayerInfo(members, guests, goal.playerId);
+                                return (
+                                  <div key={idx} className="flex items-center gap-2 text-xs text-gray-700">
+                                    <span className="text-green-600">⚽</span>
+                                    <span className="font-medium">{info?.name || '알 수 없음'}</span>
                                   </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between mb-0.5">
-                                      <span className="text-xs font-semibold text-gray-900 truncate">
-                                        {name}
-                                      </span>
-                                      <span className="text-[10px] text-gray-500 ml-2">
-                                        {pct.toFixed(1)}%
-                                      </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Vote breakdown */}
+                        {Object.keys(matchVoteCounts).length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-bold text-gray-600 mb-2">투표 결과</h4>
+                            <div className="space-y-2">
+                              {Object.entries(matchVoteCounts)
+                                .sort(([, a], [, b]) => b - a)
+                                .map(([id, count]) => {
+                                  const guests = getGuestsByMatch(match.id);
+                                  const info = getPlayerInfo(members, guests, id);
+                                  const name = info ? info.name : '알 수 없음';
+                                  const pct = matchTotalVotes > 0 ? (count / matchTotalVotes) * 100 : 0;
+                                  return (
+                                    <div key={id} className="flex items-center gap-2.5">
+                                      <div className="w-7 h-7 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                                        {name.charAt(0)}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between mb-0.5">
+                                          <span className="text-xs font-semibold text-gray-900 truncate">{name}</span>
+                                          <span className="text-[10px] text-gray-500 ml-2">{pct.toFixed(1)}%</span>
+                                        </div>
+                                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                          <div className="h-full bg-[#16a34a] rounded-full transition-all" style={{ width: `${pct}%` }} />
+                                        </div>
+                                      </div>
                                     </div>
-                                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                      <div
-                                        className="h-full bg-[#16a34a] rounded-full transition-all"
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                        </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

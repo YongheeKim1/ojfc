@@ -99,6 +99,7 @@ export function getMembers(): Member[] {
 export async function saveMember(member: Omit<Member, 'id' | 'pomCount' | 'createdAt'>): Promise<Member> {
   const newMember: Member = {
     ...member,
+    password: member.password || '',
     id: genId(),
     pomCount: 0,
     createdAt: Date.now(),
@@ -169,6 +170,10 @@ export async function saveMatch(match: Omit<Match, 'id'>): Promise<Match> {
 
 export async function updateMatch(id: string, updates: Partial<Match>) {
   await updateDoc(doc(db, 'matches', id), updates as Record<string, never>);
+}
+
+export async function deleteMatch(id: string) {
+  await deleteDoc(doc(db, 'matches', id));
 }
 
 // ──────────────────────────────────────────

@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { Plus, X, Pencil, Trash2, Check, Trophy } from 'lucide-react';
 import {
   getMembers,
+  getMatches,
   saveMember,
   updateMember,
   deleteMember,
   subscribe,
 } from '../lib/store';
-import type { Member, Position } from '../lib/types';
+import type { Member, Match, Position } from '../lib/types';
 import { POSITIONS, getPositionColor } from '../lib/types';
 
 const CATEGORY_ORDER = ['GK', 'DF', 'MF', 'FW'];
@@ -31,8 +32,31 @@ function sortMembers(members: Member[]): Member[] {
   });
 }
 
+function getMemberStats(memberId: string, matches: Match[]): { games: number; goals: number } {
+  let games = 0;
+  let goals = 0;
+  for (const match of matches) {
+    if (match.status !== 'done' && match.status !== 'voting' && match.status !== 'playing') continue;
+    // Check if member played in any quarter
+    let played = false;
+    for (const q of match.quarters) {
+      if (Object.values(q.playing).includes(memberId)) {
+        played = true;
+        break;
+      }
+    }
+    if (played) games++;
+    // Count goals
+    if (match.goals) {
+      goals += match.goals.filter(g => g.playerId === memberId).length;
+    }
+  }
+  return { games, goals };
+}
+
 export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>(getMembers());
+  const [matches, setMatchesState] = useState<Match[]>(getMatches());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -41,8 +65,10 @@ export default function MembersPage() {
 
   useEffect(() => {
     setMembers(getMembers());
+    setMatchesState(getMatches());
     return subscribe(() => {
       setMembers(getMembers());
+      setMatchesState(getMatches());
     });
   }, []);
 
@@ -61,7 +87,7 @@ export default function MembersPage() {
 
   const handleAdd = async () => {
     if (!name.trim() || selectedPositions.length === 0) return;
-    await saveMember({ name: name.trim(), positions: selectedPositions });
+    await saveMember({ name: name.trim(), positions: selectedPositions, password: '' });
     resetForm();
   };
 
@@ -219,16 +245,32 @@ export default function MembersPage() {
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-50">
             {sorted.map(member => {
               const positions = member.positions ?? [];
+              const stats = getMemberStats(member.id, matches);
               return (
                 <div
                   key={member.id}
                   className="flex items-center gap-3 px-5 py-3.5"
                 >
-                  {/* Name */}
+                  {/* Name + Stats */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800 truncate">
                       {member.name}
                     </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-gray-400 font-medium">
+                        {stats.games}경기
+                      </span>
+                      {stats.goals > 0 && (
+                        <span className="text-[10px] text-green-600 font-medium">
+                          ⚽ {stats.goals}골
+                        </span>
+                      )}
+                      {member.pomCount > 0 && (
+                        <span className="text-[10px] text-yellow-600 font-medium flex items-center gap-0.5">
+                          <Trophy className="w-3 h-3 text-yellow-500" /> {member.pomCount}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {/* Position badges */}
                   <div className="flex flex-wrap gap-1 justify-end">
@@ -241,13 +283,6 @@ export default function MembersPage() {
                       </span>
                     ))}
                   </div>
-                  {/* POM count */}
-                  {member.pomCount > 0 && (
-                    <div className="flex items-center gap-0.5">
-                      <Trophy className="w-3.5 h-3.5 text-yellow-500" />
-                      <span className="text-xs font-bold text-yellow-600">{member.pomCount}</span>
-                    </div>
-                  )}
                   {/* Actions */}
                   <div className="flex items-center gap-1 ml-1">
                     <button

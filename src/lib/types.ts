@@ -35,6 +35,7 @@ export function getPositionColor(pos: Position): string {
 export interface Member {
   id: string;
   name: string;
+  password: string; // 간단한 비밀번호 (4자리 PIN)
   positions: Position[]; // 선호 포지션 (다중 선택)
   pomCount: number;
   createdAt: number;
@@ -64,6 +65,11 @@ export interface QuarterLineup {
   resting: string[]; // 휴식 멤버/용병 IDs
 }
 
+export interface GoalRecord {
+  playerId: string;
+  quarter: number;
+}
+
 export interface Match {
   id: string;
   title: string;
@@ -73,6 +79,8 @@ export interface Match {
   quarters: QuarterLineup[];
   scoreA: number;
   scoreB: number;
+  opponentName: string; // B팀 이름 (빈값이면 "상대팀")
+  goals: GoalRecord[]; // 골 기록
   pomId: string | null;
   voters: string[];
   votes: Record<string, string>;

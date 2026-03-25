@@ -241,10 +241,15 @@ export default function LineupPage() {
   });
 
   useEffect(() => {
+    // Immediately refresh guests when matchId changes
+    if (matchId) {
+      setGuests(getGuestsByMatch(matchId));
+    }
     return subscribe(() => {
       setAllMatches(getMatches());
       setMembers(getMembers());
       if (matchId) {
+        // Re-fetch guests from the latest cache on every Firestore update
         setGuests(getGuestsByMatch(matchId));
       }
     });
