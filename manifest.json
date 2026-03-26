@@ -1,0 +1,22 @@
+{
+  "name": "오지FC",
+  "short_name": "오지FC",
+  "description": "AUZI F.C. 조기축구 클럽",
+  "start_url": "/ojfc/",
+  "scope": "/ojfc/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "icons": [
+    {
+      "src": "logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
