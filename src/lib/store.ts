@@ -3,7 +3,7 @@ import {
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   query, orderBy
 } from 'firebase/firestore';
-import { Member, Guest, Match, Position, POSITIONS } from './types';
+import { Member, Guest, Match, Position } from './types';
 
 // ──────────────────────────────────────────
 // 로컬 캐시 (동기 접근용) + Firestore 동기화
@@ -69,6 +69,17 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// Firestore 쓰기 에러 알림
+async function safeWrite<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error('Firestore 에러:', err);
+    alert('저장에 실패했습니다. 네트워크를 확인해주세요.');
+    throw err;
+  }
+}
+
 // ──────────────────────────────────────────
 // Current user (로컬만 - 기기별 로그인)
 // ──────────────────────────────────────────
@@ -80,12 +91,26 @@ export function getCurrentUser(): Member | null {
   } catch { return null; }
 }
 
+const SESSION_TIMEOUT = 60 * 60 * 1000; // 1시간
+
 export function setCurrentUser(member: Member) {
   localStorage.setItem('ojifc_currentUser', JSON.stringify(member));
+  localStorage.setItem('ojifc_lastActivity', Date.now().toString());
+}
+
+export function refreshActivity() {
+  localStorage.setItem('ojifc_lastActivity', Date.now().toString());
+}
+
+export function isSessionExpired(): boolean {
+  const last = localStorage.getItem('ojifc_lastActivity');
+  if (!last) return true;
+  return Date.now() - Number(last) > SESSION_TIMEOUT;
 }
 
 export function logout() {
   localStorage.removeItem('ojifc_currentUser');
+  localStorage.removeItem('ojifc_lastActivity');
 }
 
 // ──────────────────────────────────────────
@@ -104,12 +129,12 @@ export async function saveMember(member: Omit<Member, 'id' | 'pomCount' | 'creat
     pomCount: 0,
     createdAt: Date.now(),
   };
-  await setDoc(doc(db, 'members', newMember.id), newMember);
+  await safeWrite(() => setDoc(doc(db, 'members', newMember.id), newMember));
   return newMember;
 }
 
 export async function updateMember(id: string, updates: Partial<Member>) {
-  await updateDoc(doc(db, 'members', id), updates as Record<string, never>);
+  await safeWrite(() => updateDoc(doc(db, 'members', id), updates as Record<string, never>));
 }
 
 export async function deleteMember(id: string) {
@@ -125,7 +150,18 @@ export function getGuests(): Guest[] {
 }
 
 export function getGuestsByMatch(matchId: string): Guest[] {
-  return guestsCache.filter(g => g.matchId === matchId);
+  // 직접 매칭
+  const direct = guestsCache.filter(g => g.matchId === matchId);
+  if (direct.length > 0) return direct;
+
+  // 같은 날짜 매치의 용병도 포함 (매치가 삭제/변경된 경우)
+  const match = matchesCache.find(m => m.id === matchId);
+  if (!match) return [];
+  const matchDate = new Date(match.date).toDateString();
+  const sameDateMatchIds = matchesCache
+    .filter(m => new Date(m.date).toDateString() === matchDate)
+    .map(m => m.id);
+  return guestsCache.filter(g => sameDateMatchIds.includes(g.matchId));
 }
 
 export async function saveGuest(guest: { name: string; phone: string; positions: Position[]; matchId: string }): Promise<Guest> {
@@ -150,6 +186,10 @@ export async function addGuestRating(guestId: string, score: number, comment: st
   }
 }
 
+export async function updateGuest(id: string, updates: Partial<Guest>) {
+  await updateDoc(doc(db, 'guests', id), updates as Record<string, never>);
+}
+
 export async function deleteGuest(id: string) {
   await deleteDoc(doc(db, 'guests', id));
 }
@@ -164,16 +204,27 @@ export function getMatches(): Match[] {
 
 export async function saveMatch(match: Omit<Match, 'id'>): Promise<Match> {
   const newMatch: Match = { ...match, id: genId() };
-  await setDoc(doc(db, 'matches', newMatch.id), newMatch);
+  await safeWrite(() => setDoc(doc(db, 'matches', newMatch.id), newMatch));
   return newMatch;
 }
 
 export async function updateMatch(id: string, updates: Partial<Match>) {
-  await updateDoc(doc(db, 'matches', id), updates as Record<string, never>);
+  await safeWrite(() => updateDoc(doc(db, 'matches', id), updates as Record<string, never>));
 }
 
 export async function deleteMatch(id: string) {
   await deleteDoc(doc(db, 'matches', id));
+}
+
+export async function toggleAttendance(matchId: string, memberId: string) {
+  const match = matchesCache.find(m => m.id === matchId);
+  if (!match) return;
+  const attendees = match.attendees || [];
+  const isAttending = attendees.includes(memberId);
+  const newAttendees = isAttending
+    ? attendees.filter(id => id !== memberId)
+    : [...attendees, memberId];
+  await updateDoc(doc(db, 'matches', matchId), { attendees: newAttendees });
 }
 
 // ──────────────────────────────────────────
@@ -251,33 +302,48 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function getPosCategory(pos: Position): string {
-  return POSITIONS.find(p => p.value === pos)?.category || 'MF';
-}
-
-function getSlotCategory(slotLabel: string): string {
-  if (slotLabel === 'GK') return 'GK';
-  if (['CB', 'LB', 'RB'].includes(slotLabel)) return 'DF';
-  if (['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(slotLabel)) return 'MF';
-  if (['LW', 'RW', 'ST', 'CF'].includes(slotLabel)) return 'FW';
-  return 'MF';
-}
-
-const slotPreference: Record<string, string[]> = {
+// 포지션 그룹: 같은 그룹 안에서만 배치 가능
+const POSITION_GROUPS: Record<string, string[]> = {
   'GK': ['GK'],
-  'LB': ['LB', 'CB', 'LM'],
-  'RB': ['RB', 'CB', 'RM'],
-  'CB': ['CB', 'LB', 'RB', 'CDM'],
-  'CDM': ['CDM', 'CM', 'CB'],
-  'CM': ['CM', 'CDM', 'CAM'],
-  'CAM': ['CAM', 'CM', 'CF'],
-  'LM': ['LM', 'LW', 'CM', 'LB'],
-  'RM': ['RM', 'RW', 'CM', 'RB'],
-  'LW': ['LW', 'LM', 'ST', 'CF'],
-  'RW': ['RW', 'RM', 'ST', 'CF'],
-  'ST': ['ST', 'CF', 'CAM', 'LW', 'RW'],
-  'CF': ['CF', 'ST', 'CAM'],
+  'DF': ['RB', 'LB', 'CB'],
+  'MF': ['CAM', 'CDM', 'CM', 'LM', 'RM'],
+  'FW': ['LW', 'RW', 'ST', 'CF'],
 };
+
+// 슬롯의 그룹 찾기
+function getSlotGroup(slotLabel: string): string[] {
+  for (const positions of Object.values(POSITION_GROUPS)) {
+    if (positions.includes(slotLabel)) return positions;
+  }
+  return [];
+}
+
+// 카테고리 값을 실제 포지션으로 확장 (이전 데이터 호환)
+const CATEGORY_TO_POSITIONS: Record<string, string[]> = {
+  'GK': ['GK'],
+  'DF': ['RB', 'LB', 'CB'],
+  'MF': ['CAM', 'CDM', 'CM', 'LM', 'RM'],
+  'FW': ['LW', 'RW', 'ST', 'CF'],
+};
+
+// 선수의 선호 포지션을 확장 (FW → [LW, RW, ST, CF] 포함)
+function expandPositions(positions: Position[]): string[] {
+  const expanded = new Set<string>();
+  for (const pos of positions) {
+    expanded.add(pos);
+    // 카테고리 값이면 해당 그룹의 모든 포지션 추가
+    if (CATEGORY_TO_POSITIONS[pos]) {
+      CATEGORY_TO_POSITIONS[pos].forEach(p => expanded.add(p));
+    }
+  }
+  return Array.from(expanded);
+}
+
+// 선수의 선호 포지션이 해당 그룹에 속하는지
+function playerMatchesGroup(playerPositions: Position[], group: string[]): boolean {
+  const expanded = expandPositions(playerPositions);
+  return expanded.some(pos => group.includes(pos));
+}
 
 export function getPlayerInfo(id: string): { name: string; positions: Position[] } | null {
   const member = membersCache.find(m => m.id === id);
@@ -291,43 +357,30 @@ export function autoAssignLineup(
   playerIds: string[],
   formation: string
 ): Record<string, string> {
-  const slots = FORMATIONS[formation] || FORMATIONS['4-3-3'];
-  const players = playerIds.map(id => {
+  const slots = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
+  const players = shuffle(playerIds.map(id => {
     const info = getPlayerInfo(id);
     return info ? { id, ...info } : null;
-  }).filter(Boolean) as { id: string; name: string; positions: Position[] }[];
+  }).filter(Boolean) as { id: string; name: string; positions: Position[] }[]);
 
   const assignment: Record<string, string> = {};
   const used = new Set<string>();
 
+  // Pass 1: 정확 매치 (선호 포지션 = 슬롯 포지션, 카테고리 확장 포함)
   for (const slot of slots) {
-    const exact = players.find(p => !used.has(p.id) && p.positions.includes(slot.label as Position));
+    const exact = players.find(p => !used.has(p.id) && expandPositions(p.positions).includes(slot.label));
     if (exact) { assignment[slot.id] = exact.id; used.add(exact.id); }
   }
 
+  // Pass 2: 같은 그룹 내 매치 (GK/수비/미드/공격)
   for (const slot of slots) {
     if (assignment[slot.id]) continue;
-    const preferred = slotPreference[slot.label] || [];
-    const match = players.find(p => !used.has(p.id) && p.positions.some(pos => preferred.includes(pos)));
+    const group = getSlotGroup(slot.label);
+    const match = players.find(p => !used.has(p.id) && playerMatchesGroup(p.positions, group));
     if (match) { assignment[slot.id] = match.id; used.add(match.id); }
   }
 
-  for (const slot of slots) {
-    if (assignment[slot.id]) continue;
-    const slotCat = getSlotCategory(slot.label);
-    const match = players.find(p => !used.has(p.id) && p.positions.some(pos => getPosCategory(pos) === slotCat));
-    if (match) { assignment[slot.id] = match.id; used.add(match.id); }
-  }
-
-  const remaining = shuffle(players.filter(p => !used.has(p.id)));
-  let ri = 0;
-  for (const slot of slots) {
-    if (!assignment[slot.id] && ri < remaining.length) {
-      assignment[slot.id] = remaining[ri].id;
-      ri++;
-    }
-  }
-
+  // Pass 3 없음: 그룹 밖 배치 금지. 빈 슬롯은 빈 채로 유지.
   return assignment;
 }
 
@@ -338,13 +391,56 @@ export function generateQuarterLineups(
   const total = playerIds.length;
   const perQuarter = Math.min(11, total);
 
-  return [0, 1, 2, 3].map((qi) => {
-    const offset = Math.floor((qi * perQuarter) / 2) % total;
-    const rotated = [...playerIds.slice(offset), ...playerIds.slice(0, offset)];
-    const shuffledRotated = shuffle(rotated);
-    const playingIds = shuffledRotated.slice(0, perQuarter);
-    const restingIds = shuffledRotated.slice(perQuarter);
-    const playing = autoAssignLineup(playingIds, formation);
+  // 모든 선수 4쿼터 출전 (11명 이하)
+  if (total <= perQuarter) {
+    return [0, 1, 2, 3].map(() => {
+      const playing = autoAssignLineup(playerIds, formation);
+      return { playing, resting: [] };
+    });
+  }
+
+  // 최소 쿼터 결정: 가능하면 3쿼터, 아니면 2쿼터
+  const minQ = (total * 3 <= perQuarter * 4) ? 3 : 2;
+
+  // 각 선수의 출전 횟수 추적
+  const playCounts: Record<string, number> = {};
+  playerIds.forEach(id => { playCounts[id] = 0; });
+
+  const quarterAssignments: string[][] = [[], [], [], []];
+
+  // Greedy: 4쿼터 순회하며 출전 적은 선수 우선 배정
+  for (let qi = 0; qi < 4; qi++) {
+    const sorted = shuffle([...playerIds]).sort((a, b) => playCounts[a] - playCounts[b]);
+    const selected = sorted.slice(0, perQuarter);
+    quarterAssignments[qi] = selected;
+    selected.forEach(id => { playCounts[id]++; });
+  }
+
+  // 보정: 최소 쿼터 미달 선수 수정
+  for (const pid of playerIds) {
+    while (playCounts[pid] < minQ) {
+      // pid가 빠진 쿼터 찾기
+      const missingQ = [0, 1, 2, 3].find(qi => !quarterAssignments[qi].includes(pid));
+      if (missingQ === undefined) break;
+
+      // 해당 쿼터에서 가장 많이 출전한 선수와 교체
+      const overPlayed = [...quarterAssignments[missingQ]]
+        .sort((a, b) => playCounts[b] - playCounts[a]);
+      const swapTarget = overPlayed.find(id => playCounts[id] > minQ);
+      if (!swapTarget) break;
+
+      // 스왑
+      const idx = quarterAssignments[missingQ].indexOf(swapTarget);
+      quarterAssignments[missingQ][idx] = pid;
+      playCounts[pid]++;
+      playCounts[swapTarget]--;
+    }
+  }
+
+  // 포지션 배치
+  return quarterAssignments.map(selected => {
+    const restingIds = playerIds.filter(id => !selected.includes(id));
+    const playing = autoAssignLineup(selected, formation);
     return { playing, resting: restingIds };
   });
 }

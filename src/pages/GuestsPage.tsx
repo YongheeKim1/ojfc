@@ -16,6 +16,7 @@ import {
   saveGuest,
   addGuestRating,
   deleteGuest,
+  updateGuest,
   getMatches,
   subscribe,
 } from '../lib/store';
@@ -88,7 +89,7 @@ export default function GuestsPage() {
 
   // Matches available for guest registration (scheduled or lineup)
   const availableMatches = matches.filter(
-    (m) => m.status === 'scheduled' || m.status === 'lineup'
+    (m) => m.status === 'scheduled' || m.status === 'lineup' || m.status === 'playing'
   );
 
   const togglePosition = (pos: Position) => {
@@ -453,6 +454,30 @@ export default function GuestsPage() {
                                     평가 등록
                                   </button>
                                 </div>
+                              </div>
+
+                              {/* 매치 변경 */}
+                              <div>
+                                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                                  참여 매치 변경
+                                </h3>
+                                <select
+                                  value={guest.matchId}
+                                  onChange={async (e) => {
+                                    await updateGuest(guest.id, { matchId: e.target.value });
+                                  }}
+                                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-transparent bg-white"
+                                >
+                                  {/* 현재 매치 (삭제됐어도 표시) */}
+                                  {!matches.find(m => m.id === guest.matchId) && (
+                                    <option value={guest.matchId}>삭제된 매치</option>
+                                  )}
+                                  {matches.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.title} ({formatDate(m.date)}) {m.status === 'done' ? '[종료]' : ''}
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
 
                               {/* Delete button */}

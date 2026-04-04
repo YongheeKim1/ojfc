@@ -20,12 +20,14 @@ import { Match, Member, Guest, Position, GoalRecord, getPositionColor } from '..
 import {
   getMatches,
   updateMatch,
+  updateMember,
   deleteMatch,
   getMembers,
   getCurrentUser,
   saveMatch,
   getGuestsByMatch,
   subscribe,
+  toggleAttendance,
 } from '../lib/store';
 
 function formatDate(timestamp: number): string {
@@ -98,6 +100,36 @@ export default function MatchResultPage() {
     });
   }, []);
 
+  // 24시간 후 자동 확정
+  useEffect(() => {
+    const autoFinalize = async () => {
+      const now = Date.now();
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+      for (const match of matches) {
+        if (match.status !== 'voting') continue;
+        // match.date 기준 24시간 경과 확인
+        const elapsed = now - (match.votingStartedAt || match.date);
+        if (elapsed < ONE_DAY) continue;
+
+        // POM 계산
+        const voteCounts = getVoteCounts(match.votes);
+        let pomId: string | null = null;
+        let maxVotes = 0;
+        for (const [id, count] of Object.entries(voteCounts)) {
+          if (count > maxVotes) { maxVotes = count; pomId = id; }
+        }
+        if (pomId) {
+          const member = members.find(m => m.id === pomId);
+          if (member) {
+            await updateMember(pomId, { pomCount: (member.pomCount || 0) + 1 });
+          }
+        }
+        await updateMatch(match.id, { pomId, status: 'done' });
+      }
+    };
+    autoFinalize();
+  }, [matches.length]);
+
   // Create form state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -138,6 +170,7 @@ export default function MatchResultPage() {
       pomId: null,
       voters: [],
       votes: {},
+      attendees: [],
       status: 'scheduled',
     });
     setNewTitle('');
@@ -169,7 +202,7 @@ export default function MatchResultPage() {
   };
 
   const handleEndGame = async (matchId: string) => {
-    await updateMatch(matchId, { status: 'voting' });
+    await updateMatch(matchId, { status: 'voting', votingStartedAt: Date.now() });
     const m = getMatches().find((x) => x.id === matchId);
     if (m) openVoting(m);
   };
@@ -191,37 +224,14 @@ export default function MatchResultPage() {
     await updateMatch(activeVotingId, { scoreA, scoreB, opponentName, goals });
   };
 
+  const [goalQuarter, setGoalQuarter] = useState(1);
+
   const handleAddGoal = (playerId: string) => {
-    setGoals(prev => [...prev, { playerId, quarter: 1 }]);
+    setGoals(prev => [...prev, { playerId, quarter: goalQuarter }]);
   };
 
   const handleRemoveGoal = (index: number) => {
     setGoals(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleFinalize = async () => {
-    if (!activeVotingId) return;
-    const match = matches.find((m) => m.id === activeVotingId);
-    if (!match) return;
-    const voteCounts = getVoteCounts(match.votes);
-    let pomId: string | null = null;
-    let maxVotes = 0;
-    for (const [id, count] of Object.entries(voteCounts)) {
-      if (count > maxVotes) {
-        maxVotes = count;
-        pomId = id;
-      }
-    }
-    // Update POM count
-    if (pomId) {
-      const member = members.find(m => m.id === pomId);
-      if (member) {
-        const { updateMember } = await import('../lib/store');
-        await updateMember(pomId, { pomCount: (member.pomCount || 0) + 1 });
-      }
-    }
-    await updateMatch(activeVotingId, { pomId, status: 'done', scoreA, scoreB, opponentName, goals });
-    setActiveVotingId(null);
   };
 
   const getVotablePlayers = (match: Match): { id: string; name: string; positions: Position[] }[] => {
@@ -331,6 +341,44 @@ export default function MatchResultPage() {
                         </div>
                       </div>
 
+                      {/* 참석 확인 (예정 매치) */}
+                      {match.status === 'scheduled' && (
+                        <div className="mt-3 bg-gray-50 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-gray-700">
+                              참석 확인 ({(match.attendees || []).length}명)
+                            </span>
+                            {currentUser && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleAttendance(match.id, currentUser.id);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                  (match.attendees || []).includes(currentUser.id)
+                                    ? 'bg-red-50 text-red-600 border border-red-200'
+                                    : 'bg-green-50 text-green-600 border border-green-200'
+                                }`}
+                              >
+                                {(match.attendees || []).includes(currentUser.id) ? '참석 취소' : '참석'}
+                              </button>
+                            )}
+                          </div>
+                          {(match.attendees || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(match.attendees || []).map(id => {
+                                const m = members.find(mem => mem.id === id);
+                                return m ? (
+                                  <span key={id} className="text-[11px] bg-white px-2 py-1 rounded-lg border border-gray-200 font-medium text-gray-700">
+                                    {m.name}
+                                  </span>
+                                ) : null;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <div className="mt-3">
                         {match.status === 'scheduled' && (
                           <button onClick={() => navigate(`/lineup?matchId=${match.id}`)}
@@ -338,17 +386,17 @@ export default function MatchResultPage() {
                             <LayoutGrid size={14} /> 라인업 편성
                           </button>
                         )}
-                        {match.status === 'lineup' && (
-                          <button onClick={() => navigate(`/lineup?matchId=${match.id}`)}
-                            className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
-                            <Eye size={14} /> 라인업 보기
-                          </button>
-                        )}
-                        {match.status === 'playing' && (
-                          <button onClick={() => handleEndGame(match.id)}
-                            className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
-                            <Play size={14} /> 경기 종료
-                          </button>
+                        {(match.status === 'lineup' || match.status === 'playing') && (
+                          <div className="space-y-2">
+                            <button onClick={() => navigate(`/lineup?matchId=${match.id}`)}
+                              className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                              <Eye size={14} /> 라인업 보기
+                            </button>
+                            <button onClick={() => handleEndGame(match.id)}
+                              className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+                              <Play size={14} /> 경기 종료
+                            </button>
+                          </div>
                         )}
                         {match.status === 'voting' && !isVotingOpen && (
                           <button onClick={() => openVoting(match)}
@@ -362,6 +410,12 @@ export default function MatchResultPage() {
                     {/* Voting panel */}
                     {isVotingOpen && votingMatch && (
                       <div className="border-t border-gray-100 p-4 space-y-4 bg-gray-50">
+                        <div className="flex justify-end">
+                          <button onClick={() => setActiveVotingId(null)}
+                            className="text-xs text-gray-400 hover:text-gray-600 font-medium flex items-center gap-1">
+                            <X size={14} /> 닫기
+                          </button>
+                        </div>
                         {/* Score Input */}
                         <div className="bg-white rounded-xl p-4">
                           <h4 className="text-xs font-bold text-gray-700 mb-3 text-center">경기 점수</h4>
@@ -391,6 +445,16 @@ export default function MatchResultPage() {
                             <h5 className="text-[11px] font-bold text-gray-600 mb-2 flex items-center gap-1">
                               <Goal size={12} /> 골 기록
                             </h5>
+                            <div className="flex gap-1 mb-2">
+                              {[1, 2, 3, 4].map(q => (
+                                <button key={q} onClick={() => setGoalQuarter(q)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors ${
+                                    goalQuarter === q ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'
+                                  }`}>
+                                  {q}Q
+                                </button>
+                              ))}
+                            </div>
                             {goals.length > 0 && (
                               <div className="space-y-1 mb-2">
                                 {goals.map((goal, idx) => {
@@ -398,7 +462,10 @@ export default function MatchResultPage() {
                                   const info = getPlayerInfo(members, guests, goal.playerId);
                                   return (
                                     <div key={idx} className="flex items-center justify-between bg-green-50 rounded-lg px-2.5 py-1.5">
-                                      <span className="text-xs font-medium text-gray-700">{info?.name || '알 수 없음'}</span>
+                                      <span className="text-xs font-medium text-gray-700">
+                                        <span className="text-[10px] text-green-600 mr-1">{goal.quarter}Q</span>
+                                        {info?.name || '알 수 없음'}
+                                      </span>
                                       <button onClick={() => handleRemoveGoal(idx)} className="text-gray-400 hover:text-red-500">
                                         <X size={12} />
                                       </button>
@@ -499,10 +566,10 @@ export default function MatchResultPage() {
                           )}
                         </div>
 
-                        <button onClick={handleFinalize}
-                          className="w-full py-3 bg-gradient-to-r from-[#1e3a5f] to-[#16a34a] text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-lg">
-                          결과 확정
-                        </button>
+                        {/* 투표 종료는 24시간 후 자동 확정 */}
+                        <p className="text-center text-[10px] text-gray-400">
+                          ⏰ 경기 종료 24시간 후 자동 확정됩니다
+                        </p>
                       </div>
                     )}
                   </div>
@@ -539,7 +606,7 @@ export default function MatchResultPage() {
 
                 return (
                   <div key={match.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                    <button onClick={() => setExpandedHistoryId(isExpanded ? null : match.id)} className="w-full p-4 text-left">
+                    <div onClick={() => setExpandedHistoryId(isExpanded ? null : match.id)} className="w-full p-4 text-left cursor-pointer">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-400">{formatDate(match.date)}</span>
                         <div className="flex items-center gap-2">
@@ -562,7 +629,7 @@ export default function MatchResultPage() {
                         <span className="text-2xl font-extrabold text-gray-900">{match.scoreA} : {match.scoreB}</span>
                         <span className="text-xs font-bold text-red-600">{getTeamName(match, 'B')}</span>
                       </div>
-                    </button>
+                    </div>
 
                     {isExpanded && (
                       <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">

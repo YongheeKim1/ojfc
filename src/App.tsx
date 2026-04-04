@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut } from 'lucide-react';
-import { getCurrentUser, logout } from './lib/store';
+import { getCurrentUser, logout, isSessionExpired, refreshActivity } from './lib/store';
 import type { Member } from './lib/types';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
@@ -31,6 +31,38 @@ export default function App() {
   useEffect(() => {
     setUser(getCurrentUser());
   }, [location.pathname]);
+
+  // 세션 만료 체크 (1시간 무반응 시 자동 로그아웃)
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    // 페이지 로드 시 세션 만료 확인
+    if (isSessionExpired()) {
+      logout();
+      setUser(null);
+      navigate('/login');
+      return;
+    }
+
+    // 유저 활동 감지 → 타임스탬프 갱신
+    const handleActivity = () => refreshActivity();
+    const events = ['click', 'touchstart', 'keydown', 'scroll'];
+    events.forEach(e => window.addEventListener(e, handleActivity, { passive: true }));
+
+    // 1분마다 세션 만료 체크
+    const interval = setInterval(() => {
+      if (isSessionExpired()) {
+        logout();
+        setUser(null);
+        navigate('/login');
+      }
+    }, 60 * 1000);
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, handleActivity));
+      clearInterval(interval);
+    };
+  }, [isLoggedIn, navigate]);
 
   const handleLogin = () => {
     setUser(getCurrentUser());

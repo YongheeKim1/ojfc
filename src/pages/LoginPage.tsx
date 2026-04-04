@@ -43,7 +43,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || selectedPositions.length === 0 || !password.trim()) return;
+    if (!name.trim() || selectedPositions.length === 0 || password.trim().length < 4) return;
     const member = await saveMember({ name: name.trim(), positions: selectedPositions, password: password.trim() });
     setCurrentUser(member);
     onLogin();
@@ -175,7 +175,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
                 value={password}
                 onChange={e => { setPassword(e.target.value); setPasswordError(false); }}
                 onKeyDown={e => { if (e.key === 'Enter') handlePasswordSubmit(); }}
-                placeholder="비밀번호를 입력하세요"
+                placeholder="비밀번호 (4자리 이상)"
                 className={`w-full pl-11 pr-4 py-3.5 bg-white/10 border rounded-xl text-sm text-white placeholder-blue-300/50 outline-none focus:ring-2 transition ${
                   passwordError
                     ? 'border-red-400 focus:ring-red-400/50'
@@ -296,7 +296,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="비밀번호를 입력하세요"
+                placeholder="비밀번호 (4자리 이상)"
                 className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-sm text-white placeholder-blue-300/50 outline-none focus:ring-2 focus:ring-[#16a34a]/50 focus:border-[#16a34a] transition"
               />
             </div>
@@ -356,7 +356,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
             <button
               type="submit"
-              disabled={!name.trim() || selectedPositions.length === 0 || !password.trim()}
+              disabled={!name.trim() || selectedPositions.length === 0 || password.trim().length < 4}
               className="w-full py-3.5 bg-[#16a34a] hover:bg-green-600 active:bg-green-700 text-white rounded-xl text-base font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <UserPlus className="w-5 h-5" />

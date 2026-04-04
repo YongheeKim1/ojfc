@@ -3,7 +3,6 @@ import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   Users,
   Shuffle,
-  Play,
   AlertTriangle,
   Check,
   ChevronDown,
@@ -14,6 +13,7 @@ import {
   ClipboardList,
   ChevronRight,
   Edit3,
+  X,
 } from 'lucide-react';
 import {
   getMembers,
@@ -52,7 +52,7 @@ function FootballPitch({
   selectedPlayerId: string | null;
   onPlayerTap?: (slotId: string, playerId: string) => void;
 }) {
-  const slots: FormationSlot[] = FORMATIONS[formation] || FORMATIONS['4-3-3'];
+  const slots: FormationSlot[] = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
 
   return (
     <div className="w-full">
@@ -216,13 +216,16 @@ function FootballPitch({
 // ─── Past Lineup Card ───
 function PastLineupCard({ match }: { match: { id: string; title: string; date: number; formation: string } }) {
   return (
-    <div className="flex-shrink-0 w-36 bg-white rounded-xl border border-gray-200 p-3 shadow-sm">
+    <Link
+      to={`/lineup?matchId=${match.id}`}
+      className="flex-shrink-0 w-36 bg-white rounded-xl border border-gray-200 p-3 shadow-sm hover:border-green-400 hover:bg-green-50 transition-colors"
+    >
       <p className="text-[11px] text-gray-400 font-medium">
         {new Date(match.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
       </p>
       <p className="text-xs font-bold text-gray-800 mt-0.5 truncate">{match.title}</p>
-      <p className="text-[11px] text-green-600 font-semibold mt-1">{match.formation || '4-3-3'}</p>
-    </div>
+      <p className="text-[11px] text-green-600 font-semibold mt-1">{match.formation || '4-2-3-1'}</p>
+    </Link>
   );
 }
 
@@ -282,9 +285,9 @@ export default function LineupPage() {
 
   // Local state
   const [step, setStep] = useState<'select' | 'lineup'>(
-    match && (match.status === 'lineup' || match.status === 'playing') ? 'lineup' : 'select'
+    match && (match.status === 'lineup' || match.status === 'playing' || (match.status === 'done' && match.quarters?.length > 0) || (match.status === 'voting' && match.quarters?.length > 0)) ? 'lineup' : 'select'
   );
-  const [formation, setFormation] = useState(match?.formation ?? '4-3-3');
+  const [formation, setFormation] = useState(match?.formation ?? '4-2-3-1');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     // Derive from existing quarters if available
     if (match?.quarters?.length) {
@@ -295,12 +298,56 @@ export default function LineupPage() {
       });
       return ids;
     }
-    return new Set<string>();
+    // 참석 확인한 멤버 + 해당 매치 용병 자동 체크
+    const ids = new Set<string>(match?.attendees || []);
+    if (matchId) {
+      getGuestsByMatch(matchId).forEach(g => ids.add(g.id));
+    }
+    return ids;
   });
   const [quarters, setQuarters] = useState<{ playing: Record<string, string>; resting: string[] }[]>(
     match?.quarters?.map((q) => ({ playing: q.playing, resting: q.resting })) ?? []
   );
   const [activeQuarter, setActiveQuarter] = useState(0);
+
+  // ★ DB에서 match가 변경되면 로컬 state 자동 동기화
+  useEffect(() => {
+    if (!match) return;
+
+    // quarters가 DB에 있으면 로컬에 반영
+    if (match.quarters?.length > 0) {
+      setQuarters(match.quarters.map(q => ({ playing: q.playing, resting: q.resting })));
+      setStep('lineup');
+      setFormation(match.formation || '4-2-3-1');
+
+      // selectedIds도 quarters에서 추출
+      const ids = new Set<string>();
+      match.quarters.forEach(q => {
+        Object.values(q.playing).forEach(pid => ids.add(pid));
+        q.resting.forEach(pid => ids.add(pid));
+      });
+      setSelectedIds(ids);
+    } else if (match.status === 'scheduled') {
+      // 라인업이 없는 예정 매치 → select 단계
+      setStep('select');
+      setQuarters([]);
+    }
+  }, [match?.quarters?.length, match?.status, match?.formation]);
+
+  // 용병이 늦게 로드되면 자동 체크에 추가
+  useEffect(() => {
+    if (step !== 'select' || !matchId) return;
+    if (match?.quarters?.length) return;
+    const guestsForMatch = getGuestsByMatch(matchId);
+    if (guestsForMatch.length > 0) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        guestsForMatch.forEach(g => next.add(g.id));
+        (match?.attendees || []).forEach(id => next.add(id));
+        return next;
+      });
+    }
+  }, [guests, match?.attendees, step, matchId]);
 
   // Tap-to-swap: track which player is currently selected (by their ID)
   const [swapSelectedId, setSwapSelectedId] = useState<string | null>(null);
@@ -348,7 +395,7 @@ export default function LineupPage() {
     await updateMatch(matchId, {
       formation,
       quarters: quarterLineups,
-      status: 'lineup',
+      status: 'playing',
     });
   };
 
@@ -434,13 +481,6 @@ export default function LineupPage() {
     [swapSelectedId, performSwap]
   );
 
-  const handleStartMatch = async () => {
-    if (!matchId) return;
-    await updateMatch(matchId, { status: 'playing' });
-    navigate(`/lineup?matchId=${matchId}`, { replace: true });
-    window.location.reload();
-  };
-
   const handleEndMatch = async () => {
     if (!matchId) return;
     await updateMatch(matchId, { status: 'voting' });
@@ -458,6 +498,12 @@ export default function LineupPage() {
     setSwapSelectedId(null);
   };
 
+  // 현재 진행 중인 매치(lineup/playing)
+  const activeLineupMatch = useMemo(
+    () => allMatches.find(m => m.status === 'lineup' || m.status === 'playing'),
+    [allMatches]
+  );
+
   // ─── No matchId: show past lineups + scheduled matches ───
   if (!matchId || !match) {
     return (
@@ -466,6 +512,26 @@ export default function LineupPage() {
         <div className="bg-[#1e3a5f] text-white px-4 py-4">
           <h1 className="text-lg font-bold">라인업</h1>
         </div>
+
+        {/* 진행 중인 매치 배너 */}
+        {activeLineupMatch && (
+          <div className="px-4 pt-4">
+            <Link
+              to={`/lineup?matchId=${activeLineupMatch.id}`}
+              className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl p-3 hover:bg-green-100 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                </span>
+                <span className="text-sm font-bold text-green-800">{activeLineupMatch.title}</span>
+                <span className="text-xs text-green-600">{activeLineupMatch.status === 'playing' ? 'LIVE' : '라인업'}</span>
+              </div>
+              <ChevronRight size={16} className="text-green-500" />
+            </Link>
+          </div>
+        )}
 
         {/* Past lineups */}
         {pastMatches.length > 0 && (
@@ -811,6 +877,63 @@ export default function LineupPage() {
         </div>
       )}
 
+      {/* 쿼터별 출전 현황 */}
+      {quarters.length === 4 && (
+        <div className="px-4 pb-3">
+          <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-1.5">
+              <Users size={14} className="text-[#1e3a5f]" />
+              출전 현황
+            </h3>
+            <div className="space-y-1.5">
+              {(() => {
+                // 선수별 출전 쿼터 계산
+                const allIds = new Set<string>();
+                quarters.forEach(q => {
+                  Object.values(q.playing).forEach(id => allIds.add(id));
+                  q.resting.forEach(id => allIds.add(id));
+                });
+                const counts: { id: string; name: string; count: number; qs: number[] }[] = [];
+                allIds.forEach(id => {
+                  const info = getPlayerInfo(id);
+                  if (!info) return;
+                  const qs: number[] = [];
+                  quarters.forEach((q, qi) => {
+                    if (Object.values(q.playing).includes(id)) qs.push(qi + 1);
+                  });
+                  counts.push({ id, name: info.name, count: qs.length, qs });
+                });
+                counts.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+                return counts.map(p => (
+                  <div key={p.id} className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-800 w-16 truncate">{p.name}</span>
+                    <div className="flex gap-1 flex-1">
+                      {[1, 2, 3, 4].map(q => (
+                        <div
+                          key={q}
+                          className={`w-7 h-5 rounded text-[10px] font-bold flex items-center justify-center ${
+                            p.qs.includes(q)
+                              ? 'bg-green-500 text-white'
+                              : 'bg-gray-100 text-gray-300'
+                          }`}
+                        >
+                          {q}Q
+                        </div>
+                      ))}
+                    </div>
+                    <span className={`text-[11px] font-bold min-w-[32px] text-right ${
+                      p.count >= 3 ? 'text-green-600' : p.count >= 2 ? 'text-blue-600' : 'text-red-500'
+                    }`}>
+                      {p.count}쿼터
+                    </span>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="px-4 pb-6 space-y-3">
         {!isPlaying && (
@@ -823,32 +946,59 @@ export default function LineupPage() {
               다시 섞기
             </button>
 
-            <button
-              onClick={handleStartMatch}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-[#1e3a5f] hover:bg-[#162d4a] transition-colors text-sm"
-            >
-              <Play size={18} />
-              경기 시작
-            </button>
-
+            <p className="text-center text-[10px] text-gray-400">
+              💡 선수를 탭하고 다른 선수를 탭하면 자유롭게 교체됩니다
+            </p>
             <button
               onClick={handleBackToSelect}
               className="w-full flex items-center justify-center gap-2 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
               <Edit3 size={14} />
-              라인업 수정
+              멤버 다시 선택
             </button>
           </>
         )}
 
-        {isPlaying && (
+        {/* 경기 취소 (라인업 상태에서 → 다시 scheduled로) */}
+        {!isPlaying && (
           <button
-            onClick={handleEndMatch}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition-colors text-sm"
+            onClick={async () => {
+              if (!matchId) return;
+              if (!confirm('경기를 취소하고 다시 라인업을 짜시겠습니까?')) return;
+              await updateMatch(matchId, { status: 'scheduled', quarters: [] });
+              setStep('select');
+              setQuarters([]);
+            }}
+            className="w-full flex items-center justify-center gap-2 py-2 text-sm text-red-400 hover:text-red-600 transition-colors"
           >
-            <Square size={16} className="fill-current" />
-            경기 종료
+            <X size={14} />
+            경기 취소
           </button>
+        )}
+
+        {isPlaying && (
+          <>
+            <button
+              onClick={handleEndMatch}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition-colors text-sm"
+            >
+              <Square size={16} className="fill-current" />
+              경기 종료
+            </button>
+            <button
+              onClick={async () => {
+                if (!matchId) return;
+                if (!confirm('경기를 취소하고 다시 라인업을 짜시겠습니까?')) return;
+                await updateMatch(matchId, { status: 'scheduled', quarters: [] });
+                setStep('select');
+                setQuarters([]);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X size={14} />
+              경기 취소
+            </button>
+          </>
         )}
       </div>
     </div>
