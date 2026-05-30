@@ -7,6 +7,7 @@ import {
   updateMember,
   deleteMember,
   subscribe,
+  isAdmin,
 } from '../lib/store';
 import type { Member, Match, Position } from '../lib/types';
 import { POSITIONS, getPositionColor } from '../lib/types';
@@ -55,6 +56,7 @@ function getMemberStats(memberId: string, matches: Match[]): { games: number; go
 }
 
 export default function MembersPage() {
+  const admin = isAdmin();
   const [members, setMembers] = useState<Member[]>(getMembers());
   const [matches, setMatchesState] = useState<Match[]>(getMatches());
   const [showForm, setShowForm] = useState(false);
@@ -125,8 +127,8 @@ export default function MembersPage() {
       </div>
 
       <div className="px-4 -mt-4 space-y-4">
-        {/* Add button / Form */}
-        {!showForm ? (
+        {/* Add button / Form (admin only) */}
+        {admin && !showForm ? (
           <button
             onClick={() => {
               resetForm();
@@ -137,7 +139,7 @@ export default function MembersPage() {
             <Plus className="w-5 h-5" />
             멤버 추가
           </button>
-        ) : (
+        ) : admin && showForm ? (
           <div className="bg-white rounded-2xl shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-bold text-gray-700">
@@ -230,7 +232,7 @@ export default function MembersPage() {
               </button>
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Member list */}
         {sorted.length === 0 ? (
@@ -283,21 +285,23 @@ export default function MembersPage() {
                       </span>
                     ))}
                   </div>
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 ml-1">
-                    <button
-                      onClick={() => handleEdit(member)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 active:bg-gray-100 transition-colors"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(member.id)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 active:bg-red-50 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  {/* Actions (admin only) */}
+                  {admin && (
+                    <div className="flex items-center gap-1 ml-1">
+                      <button
+                        onClick={() => handleEdit(member)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 active:bg-gray-100 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(member.id)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 active:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

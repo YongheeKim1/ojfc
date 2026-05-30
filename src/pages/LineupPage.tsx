@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Edit3,
   X,
+  Share2,
 } from 'lucide-react';
 import {
   getMembers,
@@ -24,6 +25,7 @@ import {
   FORMATIONS,
   generateQuarterLineups,
   subscribe,
+  isAdmin,
 } from '../lib/store';
 import type { FormationSlot } from '../lib/store';
 import type { Position, QuarterLineup } from '../lib/types';
@@ -50,7 +52,7 @@ function FootballPitch({
   lineup: Record<string, string>;
   formation: string;
   selectedPlayerId: string | null;
-  onPlayerTap?: (slotId: string, playerId: string) => void;
+  onPlayerTap?: (slotId: string, playerId: string | null) => void;
 }) {
   const slots: FormationSlot[] = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
 
@@ -168,7 +170,9 @@ function FootballPitch({
         {slots.map((slot) => {
           const playerId = lineup[slot.id];
           const info = playerId ? getPlayerInfo(playerId) : null;
+          const isEmpty = !playerId;
           const isSelected = playerId != null && playerId === selectedPlayerId;
+          const isEmptyHighlight = isEmpty && selectedPlayerId != null;
 
           return (
             <button
@@ -176,33 +180,46 @@ function FootballPitch({
               className="absolute flex flex-col items-center -translate-x-1/2 -translate-y-1/2"
               style={{ left: `${slot.x}%`, top: `${slot.y}%` }}
               onClick={() => {
-                if (playerId && onPlayerTap) onPlayerTap(slot.id, playerId);
+                if (onPlayerTap) onPlayerTap(slot.id, playerId || null);
               }}
             >
               {/* Circle */}
               <div
-                className={`w-12 h-12 rounded-full flex items-center justify-center border-[2.5px] transition-all ${
-                  isSelected ? 'border-blue-400 ring-2 ring-blue-400 ring-offset-1' : 'border-white'
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                  isSelected
+                    ? 'border-[2.5px] border-blue-400 ring-2 ring-blue-400 ring-offset-1'
+                    : isEmpty
+                      ? isEmptyHighlight
+                        ? 'border-[2.5px] border-dashed border-yellow-400 ring-2 ring-yellow-300 animate-pulse'
+                        : 'border-[2.5px] border-dashed border-white/50'
+                      : 'border-[2.5px] border-white'
                 }`}
                 style={{
                   background: isSelected
                     ? 'linear-gradient(135deg, rgba(219,234,254,0.97), rgba(191,219,254,0.97))'
-                    : 'linear-gradient(135deg, rgba(255,255,255,0.97), rgba(235,235,235,0.97))',
+                    : isEmpty
+                      ? 'rgba(255,255,255,0.3)'
+                      : 'linear-gradient(135deg, rgba(255,255,255,0.97), rgba(235,235,235,0.97))',
                   boxShadow: isSelected
                     ? '0 3px 10px rgba(59,130,246,0.5)'
-                    : '0 3px 10px rgba(0,0,0,0.35)',
+                    : isEmpty
+                      ? 'none'
+                      : '0 3px 10px rgba(0,0,0,0.35)',
                 }}
               >
-                <span className="text-[10px] font-extrabold text-gray-700">{slot.label}</span>
+                <span className={`text-[10px] font-extrabold ${isEmpty ? 'text-white/70' : 'text-gray-700'}`}>{slot.label}</span>
               </div>
               {/* Name pill */}
               <div
                 className={`mt-0.5 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-md transition-all ${
-                  isSelected ? 'bg-blue-100/95 ring-1 ring-blue-400' : 'bg-white/90'
+                  isSelected ? 'bg-blue-100/95 ring-1 ring-blue-400'
+                    : isEmpty
+                      ? isEmptyHighlight ? 'bg-yellow-100/90 ring-1 ring-yellow-400' : 'bg-white/40'
+                      : 'bg-white/90'
                 }`}
               >
-                <span className="text-[10px] font-bold text-gray-900 whitespace-nowrap leading-tight">
-                  {info?.name ?? '---'}
+                <span className={`text-[10px] font-bold whitespace-nowrap leading-tight ${isEmpty ? 'text-white/70' : 'text-gray-900'}`}>
+                  {info?.name ?? (isEmptyHighlight ? '여기에 배치' : '빈자리')}
                 </span>
               </div>
             </button>
@@ -231,6 +248,7 @@ function PastLineupCard({ match }: { match: { id: string; title: string; date: n
 
 // ─── Main Lineup Page ───
 export default function LineupPage() {
+  const admin = isAdmin();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const matchId = searchParams.get('matchId');
@@ -306,7 +324,7 @@ export default function LineupPage() {
     return ids;
   });
   const [quarters, setQuarters] = useState<{ playing: Record<string, string>; resting: string[] }[]>(
-    match?.quarters?.map((q) => ({ playing: q.playing, resting: q.resting })) ?? []
+    match?.quarters?.map((q) => ({ playing: q.playing || {}, resting: q.resting || [] })) ?? []
   );
   const [activeQuarter, setActiveQuarter] = useState(0);
 
@@ -316,7 +334,7 @@ export default function LineupPage() {
 
     // quarters가 DB에 있으면 로컬에 반영
     if (match.quarters?.length > 0) {
-      setQuarters(match.quarters.map(q => ({ playing: q.playing, resting: q.resting })));
+      setQuarters(match.quarters.map(q => ({ playing: q.playing || {}, resting: q.resting || [] })));
       setStep('lineup');
       setFormation(match.formation || '4-2-3-1');
 
@@ -379,7 +397,7 @@ export default function LineupPage() {
 
   // Generate lineup
   const handleGenerateLineup = async () => {
-    if (!matchId) return;
+    if (!matchId || !admin) return;
     const ids = Array.from(selectedIds);
     const result = generateQuarterLineups(ids, formation);
     setQuarters(result);
@@ -401,7 +419,7 @@ export default function LineupPage() {
 
   // Reshuffle
   const handleReshuffle = async () => {
-    if (!matchId) return;
+    if (!matchId || !admin) return;
     const ids = Array.from(selectedIds);
     const result = generateQuarterLineups(ids, formation);
     setQuarters(result);
@@ -419,13 +437,13 @@ export default function LineupPage() {
   // Perform swap between two players (one or both can be on pitch / resting)
   const performSwap = useCallback(
     async (playerAId: string, playerBId: string) => {
-      if (!matchId) return;
+      if (!matchId || !admin) return;
       const qi = activeQuarter;
       const q = quarters[qi];
       if (!q) return;
 
-      const newPlaying = { ...q.playing };
-      const newResting = [...q.resting];
+      const newPlaying = { ...(q.playing || {}) };
+      const newResting = [...(q.resting || [])];
 
       // Find slots for A and B (null if resting)
       const slotA = Object.entries(newPlaying).find(([, pid]) => pid === playerAId)?.[0] ?? null;
@@ -460,12 +478,13 @@ export default function LineupPage() {
       }));
       await updateMatch(matchId, { quarters: quarterLineups });
     },
-    [matchId, activeQuarter, quarters]
+    [matchId, activeQuarter, quarters, admin]
   );
 
-  // Handle tap on any player (pitch or resting)
+  // Handle tap on any player (pitch or resting) - admin만 스왑 가능
   const handlePlayerTap = useCallback(
     (playerId: string) => {
+      if (!admin) return;
       if (swapSelectedId === null) {
         // Nothing selected yet: select this player
         setSwapSelectedId(playerId);
@@ -478,17 +497,57 @@ export default function LineupPage() {
         setSwapSelectedId(null);
       }
     },
-    [swapSelectedId, performSwap]
+    [swapSelectedId, performSwap, admin]
+  );
+
+  // 빈 슬롯에 선택된 선수를 배치
+  const handleEmptySlotTap = useCallback(
+    async (slotId: string) => {
+      if (!matchId || !swapSelectedId || !admin) return;
+      const qi = activeQuarter;
+      const q = quarters[qi];
+      if (!q) return;
+
+      const newPlaying = { ...(q.playing || {}) };
+      const newResting = [...(q.resting || [])];
+
+      // 선택된 선수가 피치에 있는지 확인
+      const existingSlot = Object.entries(newPlaying).find(([, pid]) => pid === swapSelectedId)?.[0];
+
+      if (existingSlot) {
+        // 피치에서 빈 슬롯으로 이동 (기존 슬롯은 비움)
+        delete newPlaying[existingSlot];
+        newPlaying[slotId] = swapSelectedId;
+      } else {
+        // 휴식에서 빈 슬롯으로 배치
+        const restIdx = newResting.indexOf(swapSelectedId);
+        if (restIdx !== -1) newResting.splice(restIdx, 1);
+        newPlaying[slotId] = swapSelectedId;
+      }
+
+      const newQuarters = [...quarters];
+      newQuarters[qi] = { playing: newPlaying, resting: newResting };
+      setQuarters(newQuarters);
+      setSwapSelectedId(null);
+
+      const quarterLineups: QuarterLineup[] = newQuarters.map((qr, i) => ({
+        quarter: (i + 1) as 1 | 2 | 3 | 4,
+        playing: qr.playing,
+        resting: qr.resting,
+      }));
+      await updateMatch(matchId, { quarters: quarterLineups });
+    },
+    [matchId, activeQuarter, quarters, swapSelectedId, admin]
   );
 
   const handleEndMatch = async () => {
-    if (!matchId) return;
+    if (!matchId || !admin) return;
     await updateMatch(matchId, { status: 'voting' });
     navigate('/match');
   };
 
   const handleBackToSelect = async () => {
-    if (!matchId) return;
+    if (!matchId || !admin) return;
     await updateMatch(matchId, {
       status: 'scheduled',
       quarters: [],
@@ -497,6 +556,42 @@ export default function LineupPage() {
     setQuarters([]);
     setSwapSelectedId(null);
   };
+
+  // 라인업 공유 (카톡 등)
+  const handleShareLineup = async () => {
+    if (!match) return;
+    const url = window.location.origin + import.meta.env.BASE_URL + `#/lineup?matchId=${match.id}`;
+    const dateStr = new Date(match.date).toLocaleDateString('ko-KR');
+    const title = `${match.title} 라인업이 나왔습니다`;
+    const text = `${dateStr}\n${match.location || '-'}\n${match.formation || '4-2-3-1'}\n\n오지FC 앱에서 확인하세요`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+    // Fallback: 클립보드 복사
+    try {
+      await navigator.clipboard.writeText(`${title}\n\n${text}\n\n${url}`);
+      alert('라인업 정보가 복사되었습니다. 카톡에 붙여넣기 하세요!');
+    } catch {
+      prompt('아래 내용을 복사해서 카톡에 붙여넣기 하세요:', `${title}\n\n${text}\n\n${url}`);
+    }
+  };
+
+  // 전체 참석 인원 (모든 쿼터 통합)
+  const totalPlayers = useMemo(() => {
+    if (quarters.length === 0) return 0;
+    const allIds = new Set<string>();
+    for (const q of quarters) {
+      if (q.playing) Object.values(q.playing).forEach(id => allIds.add(id));
+      if (q.resting) q.resting.forEach(id => allIds.add(id));
+    }
+    return allIds.size;
+  }, [quarters]);
 
   // 현재 진행 중인 매치(lineup/playing)
   const activeLineupMatch = useMemo(
@@ -613,6 +708,22 @@ export default function LineupPage() {
           <Users size={48} />
           <p className="mt-3 text-sm">등록된 멤버가 없습니다.</p>
           <p className="text-xs">먼저 멤버를 추가해주세요.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Guest: 라인업 편성 화면 접근 불가 (아직 라인업 없음)
+  if (step === 'select' && status === 'scheduled' && !admin) {
+    return (
+      <div className="max-w-[480px] mx-auto">
+        <div className="bg-[#1e3a5f] text-white px-4 py-4">
+          <h1 className="text-lg font-bold">{match.title}</h1>
+        </div>
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400 px-6 text-center">
+          <Users size={48} />
+          <p className="mt-3 text-sm font-semibold text-gray-600">아직 라인업이 편성되지 않았습니다</p>
+          <p className="text-xs mt-1">관리자가 라인업을 편성하면 볼 수 있어요.</p>
         </div>
       </div>
     );
@@ -753,10 +864,7 @@ export default function LineupPage() {
   const currentQ = quarters[activeQuarter];
   const isPlaying = status === 'playing';
 
-  // Count all players from quarters
-  const totalPlayers = currentQ
-    ? Object.values(currentQ.playing).length + currentQ.resting.length
-    : 0;
+  // totalPlayers는 hooks 영역에서 이미 계산됨
 
   return (
     <div className="max-w-[480px] mx-auto">
@@ -831,13 +939,21 @@ export default function LineupPage() {
             lineup={currentQ.playing}
             formation={formation}
             selectedPlayerId={swapSelectedId}
-            onPlayerTap={(_slotId, playerId) => handlePlayerTap(playerId)}
+            onPlayerTap={(slotId, playerId) => {
+              if (playerId) {
+                // 선수가 있는 슬롯 탭 → 일반 스왑
+                handlePlayerTap(playerId);
+              } else if (swapSelectedId) {
+                // 빈 슬롯 탭 + 선수 선택된 상태 → 선택된 선수를 빈 슬롯에 배치
+                handleEmptySlotTap(slotId);
+              }
+            }}
           />
         )}
       </div>
 
       {/* Resting players */}
-      {currentQ && currentQ.resting.length > 0 && (
+      {currentQ && (currentQ.resting?.length ?? 0) > 0 && (
         <div className="px-4 pb-3">
           <div className="bg-gray-50 rounded-xl border border-gray-200 p-3">
             <div className="flex items-center gap-2 mb-2">
@@ -936,7 +1052,16 @@ export default function LineupPage() {
 
       {/* Action buttons */}
       <div className="px-4 pb-6 space-y-3">
-        {!isPlaying && (
+        {/* 공유 (모두 가능) */}
+        <button
+          onClick={handleShareLineup}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-yellow-900 bg-yellow-300 hover:bg-yellow-400 transition-colors text-sm shadow-sm"
+        >
+          <Share2 size={16} />
+          카톡으로 공유
+        </button>
+
+        {admin && !isPlaying && (
           <>
             <button
               onClick={handleReshuffle}
@@ -959,8 +1084,8 @@ export default function LineupPage() {
           </>
         )}
 
-        {/* 경기 취소 (라인업 상태에서 → 다시 scheduled로) */}
-        {!isPlaying && (
+        {/* 경기 취소 (admin only) */}
+        {admin && !isPlaying && (
           <button
             onClick={async () => {
               if (!matchId) return;
@@ -976,7 +1101,7 @@ export default function LineupPage() {
           </button>
         )}
 
-        {isPlaying && (
+        {admin && isPlaying && (
           <>
             <button
               onClick={handleEndMatch}

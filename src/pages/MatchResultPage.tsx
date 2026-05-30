@@ -28,6 +28,7 @@ import {
   getGuestsByMatch,
   subscribe,
   toggleAttendance,
+  isAdmin,
 } from '../lib/store';
 
 function formatDate(timestamp: number): string {
@@ -54,11 +55,11 @@ function getVoteCounts(votes: Record<string, string>): Record<string, number> {
 
 function getMatchPlayerIds(match: Match): string[] {
   const ids = new Set<string>();
-  for (const q of match.quarters) {
-    for (const pid of Object.values(q.playing)) {
+  for (const q of (match.quarters || [])) {
+    for (const pid of Object.values(q.playing || {})) {
       if (pid) ids.add(pid);
     }
-    for (const rid of q.resting) {
+    for (const rid of (q.resting || [])) {
       if (rid) ids.add(rid);
     }
   }
@@ -89,6 +90,7 @@ const STATUS_CONFIG: Record<StatusKey, { label: string; color: string }> = {
 
 export default function MatchResultPage() {
   const navigate = useNavigate();
+  const admin = isAdmin();
   const [matches, setMatches] = useState<Match[]>(getMatches());
   const [members, setMembers] = useState<Member[]>(getMembers());
   const currentUser = getCurrentUser();
@@ -156,7 +158,7 @@ export default function MatchResultPage() {
   const doneMatches = matches.filter((m) => m.status === 'done');
 
   const handleCreateMatch = async () => {
-    if (!newTitle.trim() || !newLocation.trim()) return;
+    if (!admin || !newTitle.trim() || !newLocation.trim()) return;
     await saveMatch({
       title: newTitle.trim(),
       date: new Date(newDate).getTime(),
@@ -181,6 +183,7 @@ export default function MatchResultPage() {
   };
 
   const handleDeleteMatch = async (matchId: string) => {
+    if (!admin) return;
     if (!confirm('정말 이 매치를 삭제하시겠습니까?')) return;
     await deleteMatch(matchId);
     if (activeVotingId === matchId) setActiveVotingId(null);
@@ -202,6 +205,7 @@ export default function MatchResultPage() {
   };
 
   const handleEndGame = async (matchId: string) => {
+    if (!admin) return;
     await updateMatch(matchId, { status: 'voting', votingStartedAt: Date.now() });
     const m = getMatches().find((x) => x.id === matchId);
     if (m) openVoting(m);
@@ -220,17 +224,19 @@ export default function MatchResultPage() {
   };
 
   const handleSaveScore = async () => {
-    if (!activeVotingId) return;
+    if (!admin || !activeVotingId) return;
     await updateMatch(activeVotingId, { scoreA, scoreB, opponentName, goals });
   };
 
   const [goalQuarter, setGoalQuarter] = useState(1);
 
   const handleAddGoal = (playerId: string) => {
+    if (!admin) return;
     setGoals(prev => [...prev, { playerId, quarter: goalQuarter }]);
   };
 
   const handleRemoveGoal = (index: number) => {
+    if (!admin) return;
     setGoals(prev => prev.filter((_, i) => i !== index));
   };
 
@@ -267,7 +273,8 @@ export default function MatchResultPage() {
       </div>
 
       <div className="p-4 space-y-5">
-        {/* Create New Match */}
+        {/* Create New Match (admin only) */}
+        {admin && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
@@ -309,6 +316,7 @@ export default function MatchResultPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Active Matches */}
         {activeMatches.length > 0 && (
@@ -334,10 +342,12 @@ export default function MatchResultPage() {
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0 ml-2">
                           <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${statusCfg.color}`}>{statusCfg.label}</span>
-                          <button onClick={() => handleDeleteMatch(match.id)}
-                            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                            <Trash2 size={14} />
-                          </button>
+                          {admin && (
+                            <button onClick={() => handleDeleteMatch(match.id)}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -380,7 +390,7 @@ export default function MatchResultPage() {
                       )}
 
                       <div className="mt-3">
-                        {match.status === 'scheduled' && (
+                        {admin && match.status === 'scheduled' && (
                           <button onClick={() => navigate(`/lineup?matchId=${match.id}`)}
                             className="w-full py-2.5 bg-[#1e3a5f] text-white rounded-xl text-xs font-bold hover:bg-[#16304a] transition-colors flex items-center justify-center gap-2">
                             <LayoutGrid size={14} /> 라인업 편성
@@ -392,10 +402,12 @@ export default function MatchResultPage() {
                               className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
                               <Eye size={14} /> 라인업 보기
                             </button>
-                            <button onClick={() => handleEndGame(match.id)}
-                              className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
-                              <Play size={14} /> 경기 종료
-                            </button>
+                            {admin && (
+                              <button onClick={() => handleEndGame(match.id)}
+                                className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+                                <Play size={14} /> 경기 종료
+                              </button>
+                            )}
                           </div>
                         )}
                         {match.status === 'voting' && !isVotingOpen && (
@@ -416,7 +428,8 @@ export default function MatchResultPage() {
                             <X size={14} /> 닫기
                           </button>
                         </div>
-                        {/* Score Input */}
+                        {/* Score Input (admin only) */}
+                        {admin && (
                         <div className="bg-white rounded-xl p-4">
                           <h4 className="text-xs font-bold text-gray-700 mb-3 text-center">경기 점수</h4>
 
@@ -489,6 +502,7 @@ export default function MatchResultPage() {
                             <Check size={14} /> 점수 저장
                           </button>
                         </div>
+                        )}
 
                         {/* POM Voting */}
                         <div className="bg-white rounded-xl p-4">
@@ -615,10 +629,12 @@ export default function MatchResultPage() {
                               <Trophy size={12} className="fill-yellow-500 text-yellow-500" />{pomName}
                             </span>
                           )}
-                          <button onClick={(e) => { e.stopPropagation(); handleDeleteMatch(match.id); }}
-                            className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 transition-colors">
-                            <Trash2 size={12} />
-                          </button>
+                          {admin && (
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteMatch(match.id); }}
+                              className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 transition-colors">
+                              <Trash2 size={12} />
+                            </button>
+                          )}
                           {isExpanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
                         </div>
                       </div>

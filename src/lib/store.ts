@@ -114,6 +114,17 @@ export function logout() {
 }
 
 // ──────────────────────────────────────────
+// 권한 체크: admin (DB에서 role 필드 직접 수정) / guest (기본)
+// ──────────────────────────────────────────
+export function isAdmin(): boolean {
+  // 캐시에 반영된 최신 role 확인 (로그인 당시 스냅샷이 아닌 현재 상태)
+  const user = getCurrentUser();
+  if (!user) return false;
+  const latest = membersCache.find(m => m.id === user.id);
+  return (latest?.role ?? user.role) === 'admin';
+}
+
+// ──────────────────────────────────────────
 // Members (Firestore)
 // ──────────────────────────────────────────
 
@@ -389,29 +400,29 @@ export function generateQuarterLineups(
   formation: string
 ): { playing: Record<string, string>; resting: string[] }[] {
   const total = playerIds.length;
-  const perQuarter = Math.min(11, total);
 
-  // 모든 선수 4쿼터 출전 (11명 이하)
-  if (total <= perQuarter) {
+  // 11명 이하: 전원 출전, 배치 못 하면 휴식
+  if (total <= 11) {
     return [0, 1, 2, 3].map(() => {
       const playing = autoAssignLineup(playerIds, formation);
-      return { playing, resting: [] };
+      const assignedIds = new Set(Object.values(playing));
+      const resting = playerIds.filter(id => !assignedIds.has(id));
+      return { playing, resting };
     });
   }
 
-  // 최소 쿼터 결정: 가능하면 3쿼터, 아니면 2쿼터
-  const minQ = (total * 3 <= perQuarter * 4) ? 3 : 2;
+  // 12명 이상: 쿼터별 11명 필드 + 나머지 휴식, 공평 분배
+  const minQ = (total * 3 <= 44) ? 3 : 2; // 최소 출전 쿼터
 
-  // 각 선수의 출전 횟수 추적
   const playCounts: Record<string, number> = {};
   playerIds.forEach(id => { playCounts[id] = 0; });
 
   const quarterAssignments: string[][] = [[], [], [], []];
 
-  // Greedy: 4쿼터 순회하며 출전 적은 선수 우선 배정
+  // Greedy: 출전 적은 선수 우선
   for (let qi = 0; qi < 4; qi++) {
     const sorted = shuffle([...playerIds]).sort((a, b) => playCounts[a] - playCounts[b]);
-    const selected = sorted.slice(0, perQuarter);
+    const selected = sorted.slice(0, 11);
     quarterAssignments[qi] = selected;
     selected.forEach(id => { playCounts[id]++; });
   }
@@ -419,17 +430,12 @@ export function generateQuarterLineups(
   // 보정: 최소 쿼터 미달 선수 수정
   for (const pid of playerIds) {
     while (playCounts[pid] < minQ) {
-      // pid가 빠진 쿼터 찾기
       const missingQ = [0, 1, 2, 3].find(qi => !quarterAssignments[qi].includes(pid));
       if (missingQ === undefined) break;
-
-      // 해당 쿼터에서 가장 많이 출전한 선수와 교체
       const overPlayed = [...quarterAssignments[missingQ]]
         .sort((a, b) => playCounts[b] - playCounts[a]);
       const swapTarget = overPlayed.find(id => playCounts[id] > minQ);
       if (!swapTarget) break;
-
-      // 스왑
       const idx = quarterAssignments[missingQ].indexOf(swapTarget);
       quarterAssignments[missingQ][idx] = pid;
       playCounts[pid]++;
@@ -437,10 +443,13 @@ export function generateQuarterLineups(
     }
   }
 
-  // 포지션 배치
+  // 포지션 배치: 선택된 11명 → autoAssign, 나머지 전부 휴식
   return quarterAssignments.map(selected => {
-    const restingIds = playerIds.filter(id => !selected.includes(id));
     const playing = autoAssignLineup(selected, formation);
-    return { playing, resting: restingIds };
+    // 필드에 배치된 선수 ID
+    const assignedIds = new Set(Object.values(playing));
+    // 필드에 안 들어간 모든 선수 = 휴식 (선택됐지만 그룹 불일치 + 아예 선택 안 된 선수)
+    const resting = playerIds.filter(id => !assignedIds.has(id));
+    return { playing, resting };
   });
 }

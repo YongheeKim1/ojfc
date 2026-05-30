@@ -1,14 +1,30 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Users, Calendar, Star, Plus, Swords } from 'lucide-react';
+import { Trophy, Users, Calendar, Star, Plus, Swords, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { getMembers, getMatches, getCurrentUser, subscribe } from '../lib/store';
+import { getMembers, getMatches, getCurrentUser, subscribe, getGuestsByMatch, updateMatch } from '../lib/store';
 import { getPositionColor } from '../lib/types';
 import type { Member, Match } from '../lib/types';
+
+// 매치 라인업에 출전한 선수 ID 추출 (POM 투표 후보)
+function getMatchPlayerIds(match: Match): string[] {
+  const ids = new Set<string>();
+  for (const q of (match.quarters || [])) {
+    for (const pid of Object.values(q.playing || {})) {
+      if (pid) ids.add(pid);
+    }
+    for (const rid of (q.resting || [])) {
+      if (rid) ids.add(rid);
+    }
+  }
+  return Array.from(ids);
+}
 
 export default function HomePage() {
   const [members, setMembers] = useState<Member[]>(getMembers());
   const [matches, setMatches] = useState<Match[]>(getMatches());
   const [currentUser, setCurrentUser] = useState<Member | null>(null);
+  const [selectedVote, setSelectedVote] = useState<string | null>(null);
+  const [voteSubmitting, setVoteSubmitting] = useState(false);
 
   useEffect(() => {
     setMembers(getMembers());
@@ -20,6 +36,38 @@ export default function HomePage() {
       setCurrentUser(getCurrentUser());
     });
   }, []);
+
+  // 투표 중인 매치 (가장 최근 1건)
+  const votingMatch = matches.find(m => m.status === 'voting') || null;
+  const hasVoted = !!(votingMatch && currentUser && votingMatch.votes?.[currentUser.id]);
+  const myVoteId = votingMatch && currentUser ? votingMatch.votes?.[currentUser.id] : null;
+
+  // 투표 후보 (라인업에 출전한 선수)
+  const votablePlayers = (() => {
+    if (!votingMatch) return [];
+    const ids = getMatchPlayerIds(votingMatch);
+    const guests = getGuestsByMatch(votingMatch.id);
+    const list: { id: string; name: string }[] = [];
+    for (const pid of ids) {
+      const member = members.find(m => m.id === pid);
+      if (member) { list.push({ id: pid, name: member.name }); continue; }
+      const guest = guests.find(g => g.id === pid);
+      if (guest) { list.push({ id: pid, name: guest.name + ' (용병)' }); }
+    }
+    return list;
+  })();
+
+  const handleVoteSubmit = async () => {
+    if (!votingMatch || !currentUser || !selectedVote || voteSubmitting) return;
+    setVoteSubmitting(true);
+    const newVotes = { ...votingMatch.votes, [currentUser.id]: selectedVote };
+    const newVoters = votingMatch.voters.includes(currentUser.id)
+      ? votingMatch.voters
+      : [...votingMatch.voters, currentUser.id];
+    await updateMatch(votingMatch.id, { votes: newVotes, voters: newVoters });
+    setSelectedVote(null);
+    setVoteSubmitting(false);
+  };
 
   const latestMatch = matches.length > 0 ? matches[0] : null;
 
@@ -61,6 +109,66 @@ export default function HomePage() {
       </div>
 
       <div className="px-4 -mt-4 space-y-4">
+        {/* POM 투표 카드 (voting 상태 매치) */}
+        {votingMatch && currentUser && (
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden border-2 border-yellow-200">
+            <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-white px-4 py-3 flex items-center gap-2">
+              <Trophy className="w-4 h-4" />
+              <p className="text-sm font-bold flex-1">POM 투표 진행 중</p>
+              <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-semibold">{votingMatch.title}</span>
+            </div>
+
+            <div className="p-4">
+              {votablePlayers.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">라인업에 배치된 선수가 없습니다.</p>
+              ) : hasVoted ? (
+                <div className="text-center py-3">
+                  <div className="w-12 h-12 mx-auto mb-2 bg-green-100 rounded-full flex items-center justify-center">
+                    <Check className="w-6 h-6 text-green-600" />
+                  </div>
+                  <p className="text-sm font-bold text-gray-700">투표 완료!</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    내가 선택한 MVP:{' '}
+                    <span className="font-semibold text-yellow-600">
+                      {votablePlayers.find(p => p.id === myVoteId)?.name || '?'}
+                    </span>
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 mb-3 text-center">이번 경기의 MVP를 선택하세요!</p>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {votablePlayers.map(player => {
+                      const isSelected = selectedVote === player.id;
+                      return (
+                        <button
+                          key={player.id}
+                          onClick={() => setSelectedVote(player.id)}
+                          className={`px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
+                            isSelected
+                              ? 'bg-yellow-500 text-white shadow-md'
+                              : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
+                          }`}
+                        >
+                          {player.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={handleVoteSubmit}
+                    disabled={!selectedVote || voteSubmitting}
+                    className="w-full py-2.5 bg-yellow-500 text-white rounded-xl text-sm font-bold hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    투표하기
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Stats cards */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-2xl shadow-sm p-4 text-center">

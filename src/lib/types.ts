@@ -38,6 +38,7 @@ export interface Member {
   password: string; // 간단한 비밀번호 (4자리 PIN)
   positions: Position[]; // 선호 포지션 (다중 선택)
   pomCount: number;
+  role?: 'admin'; // DB에서만 직접 설정. 없으면 guest 취급.
   createdAt: number;
 }
 

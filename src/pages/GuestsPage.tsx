@@ -19,6 +19,7 @@ import {
   updateGuest,
   getMatches,
   subscribe,
+  isAdmin,
 } from '../lib/store';
 
 function StarRating({
@@ -67,6 +68,7 @@ const POSITION_CATEGORIES = [
 ];
 
 export default function GuestsPage() {
+  const admin = isAdmin();
   const [guests, setGuests] = useState<Guest[]>(getGuests());
   const [matches, setMatches] = useState<Match[]>(getMatches());
 
@@ -99,7 +101,7 @@ export default function GuestsPage() {
   };
 
   const handleAddGuest = async () => {
-    if (!newName.trim() || !newMatchId || selectedPositions.length === 0) return;
+    if (!admin || !newName.trim() || !newMatchId || selectedPositions.length === 0) return;
     await saveGuest({
       name: newName.trim(),
       phone: newPhone.trim(),
@@ -121,6 +123,7 @@ export default function GuestsPage() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!admin) return;
     await deleteGuest(id);
     setDeleteConfirmId(null);
     if (expandedId === id) setExpandedId(null);
@@ -145,13 +148,15 @@ export default function GuestsPage() {
             <UserPlus size={22} />
             용병 관리
           </h1>
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center gap-1.5 bg-[#16a34a] text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-green-600 active:bg-green-700 transition-colors shadow-lg shadow-green-900/20"
-          >
-            <Plus size={16} />
-            용병 추가
-          </button>
+          {admin && (
+            <button
+              onClick={() => setShowAddForm(!showAddForm)}
+              className="flex items-center gap-1.5 bg-[#16a34a] text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-green-600 active:bg-green-700 transition-colors shadow-lg shadow-green-900/20"
+            >
+              <Plus size={16} />
+              용병 추가
+            </button>
+          )}
         </div>
       </div>
 
@@ -456,57 +461,60 @@ export default function GuestsPage() {
                                 </div>
                               </div>
 
-                              {/* 매치 변경 */}
-                              <div>
-                                <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                                  참여 매치 변경
-                                </h3>
-                                <select
-                                  value={guest.matchId}
-                                  onChange={async (e) => {
-                                    await updateGuest(guest.id, { matchId: e.target.value });
-                                  }}
-                                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-transparent bg-white"
-                                >
-                                  {/* 현재 매치 (삭제됐어도 표시) */}
-                                  {!matches.find(m => m.id === guest.matchId) && (
-                                    <option value={guest.matchId}>삭제된 매치</option>
-                                  )}
-                                  {matches.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.title} ({formatDate(m.date)}) {m.status === 'done' ? '[종료]' : ''}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              {/* Delete button */}
-                              <div className="pt-2 border-t border-gray-100">
-                                {deleteConfirmId === guest.id ? (
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => handleDelete(guest.id)}
-                                      className="flex-1 bg-red-500 text-white py-2.5 rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
-                                    >
-                                      삭제 확인
-                                    </button>
-                                    <button
-                                      onClick={() => setDeleteConfirmId(null)}
-                                      className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors"
-                                    >
-                                      취소
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => setDeleteConfirmId(guest.id)}
-                                    className="flex items-center justify-center gap-1.5 w-full text-red-500 py-2.5 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors"
+                              {/* 매치 변경 (admin only) */}
+                              {admin && (
+                                <div>
+                                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                                    참여 매치 변경
+                                  </h3>
+                                  <select
+                                    value={guest.matchId}
+                                    onChange={async (e) => {
+                                      await updateGuest(guest.id, { matchId: e.target.value });
+                                    }}
+                                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-transparent bg-white"
                                   >
-                                    <Trash2 size={14} />
-                                    용병 삭제
-                                  </button>
-                                )}
-                              </div>
+                                    {!matches.find(m => m.id === guest.matchId) && (
+                                      <option value={guest.matchId}>삭제된 매치</option>
+                                    )}
+                                    {matches.map((m) => (
+                                      <option key={m.id} value={m.id}>
+                                        {m.title} ({formatDate(m.date)}) {m.status === 'done' ? '[종료]' : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* Delete button (admin only) */}
+                              {admin && (
+                                <div className="pt-2 border-t border-gray-100">
+                                  {deleteConfirmId === guest.id ? (
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => handleDelete(guest.id)}
+                                        className="flex-1 bg-red-500 text-white py-2.5 rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
+                                      >
+                                        삭제 확인
+                                      </button>
+                                      <button
+                                        onClick={() => setDeleteConfirmId(null)}
+                                        className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors"
+                                      >
+                                        취소
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => setDeleteConfirmId(guest.id)}
+                                      className="flex items-center justify-center gap-1.5 w-full text-red-500 py-2.5 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors"
+                                    >
+                                      <Trash2 size={14} />
+                                      용병 삭제
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
