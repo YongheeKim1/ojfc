@@ -63,30 +63,44 @@ function getMemberStats(
   return { games, goals };
 }
 
-// 기간 옵션
-type RangeKey = 'all' | 'thisMonth' | 'last30' | 'last3m';
-const RANGE_OPTIONS: { value: RangeKey; label: string }[] = [
-  { value: 'all', label: '전체' },
-  { value: 'thisMonth', label: '이번 달' },
-  { value: 'last30', label: '최근 30일' },
-  { value: 'last3m', label: '최근 3개월' },
-];
+// 기간 옵션: 'all' 또는 'YYYY-MM' (예: '2026-05')
+type RangeKey = string;
+
+// 매치 데이터 기반으로 옵션 생성 (최근 매치 달 + 현재 달 포함)
+function buildRangeOptions(matches: Match[]): { value: RangeKey; label: string }[] {
+  const keys = new Set<string>();
+  const now = new Date();
+  // 현재 달은 항상 포함
+  keys.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  // 매치 날짜에서 모은 달
+  for (const m of matches) {
+    const d = new Date(m.date);
+    keys.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  const sorted = Array.from(keys).sort((a, b) => b.localeCompare(a));
+  const options: { value: RangeKey; label: string }[] = [{ value: 'all', label: '전체' }];
+  for (const key of sorted) {
+    const [y, m] = key.split('-');
+    options.push({ value: key, label: `${y}년 ${parseInt(m, 10)}월` });
+  }
+  return options;
+}
 
 function getRangeBounds(key: RangeKey): { start?: number; end?: number } {
-  const now = new Date();
   if (key === 'all') return {};
-  if (key === 'thisMonth') {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
-    return { start, end };
-  }
-  if (key === 'last30') {
-    return { start: now.getTime() - 30 * 24 * 60 * 60 * 1000, end: now.getTime() };
-  }
-  if (key === 'last3m') {
-    return { start: now.getTime() - 90 * 24 * 60 * 60 * 1000, end: now.getTime() };
-  }
-  return {};
+  const [yStr, mStr] = key.split('-');
+  const y = parseInt(yStr, 10);
+  const m = parseInt(mStr, 10) - 1; // 0-indexed
+  if (isNaN(y) || isNaN(m)) return {};
+  const start = new Date(y, m, 1).getTime();
+  const end = new Date(y, m + 1, 0, 23, 59, 59, 999).getTime();
+  return { start, end };
+}
+
+// 현재 달 기본값
+function getCurrentMonthKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export default function MembersPage() {
@@ -95,7 +109,7 @@ export default function MembersPage() {
   const [matches, setMatchesState] = useState<Match[]>(getMatches());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeKey>('thisMonth');
+  const [range, setRange] = useState<RangeKey>(getCurrentMonthKey());
 
   const [name, setName] = useState('');
   const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
@@ -149,6 +163,7 @@ export default function MembersPage() {
     await deleteMember(id);
   };
 
+  const rangeOptions = buildRangeOptions(matches);
   const { start: rangeStart, end: rangeEnd } = getRangeBounds(range);
   // 기간별 통계 미리 계산
   const statsByMember = new Map<string, { games: number; goals: number }>();
@@ -185,10 +200,10 @@ export default function MembersPage() {
           </div>
           <select
             value={range}
-            onChange={e => setRange(e.target.value as RangeKey)}
+            onChange={e => setRange(e.target.value)}
             className="bg-white/10 backdrop-blur border border-white/20 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-white/30"
           >
-            {RANGE_OPTIONS.map(opt => (
+            {rangeOptions.map(opt => (
               <option key={opt.value} value={opt.value} className="text-gray-800">
                 {opt.label}
               </option>
