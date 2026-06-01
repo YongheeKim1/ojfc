@@ -562,12 +562,12 @@ export default function LineupPage() {
     if (!match) return;
     const url = window.location.origin + import.meta.env.BASE_URL + `#/lineup?matchId=${match.id}`;
     const dateStr = new Date(match.date).toLocaleDateString('ko-KR');
-    const title = `${match.title} 라인업이 나왔습니다`;
-    const text = `${dateStr}\n${match.location || '-'}\n${match.formation || '4-2-3-1'}\n\n오지FC 앱에서 확인하세요`;
+    const headline = `${match.title} 라인업이 나왔습니다!`;
+    const text = `${headline}\n\n${dateStr}\n${match.location || '-'}\n${match.formation || '4-2-3-1'}\n\n오지FC 앱에서 확인하세요`;
 
     if (navigator.share) {
       try {
-        await navigator.share({ title, text, url });
+        await navigator.share({ text, url });
         return;
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
@@ -575,10 +575,10 @@ export default function LineupPage() {
     }
     // Fallback: 클립보드 복사
     try {
-      await navigator.clipboard.writeText(`${title}\n\n${text}\n\n${url}`);
+      await navigator.clipboard.writeText(`${text}\n\n${url}`);
       alert('라인업 정보가 복사되었습니다. 카톡에 붙여넣기 하세요!');
     } catch {
-      prompt('아래 내용을 복사해서 카톡에 붙여넣기 하세요:', `${title}\n\n${text}\n\n${url}`);
+      prompt('아래 내용을 복사해서 카톡에 붙여넣기 하세요:', `${text}\n\n${url}`);
     }
   };
 

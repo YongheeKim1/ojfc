@@ -33,11 +33,19 @@ function sortMembers(members: Member[]): Member[] {
   });
 }
 
-function getMemberStats(memberId: string, matches: Match[]): { games: number; goals: number } {
+function getMemberStats(
+  memberId: string,
+  matches: Match[],
+  rangeStart?: number,
+  rangeEnd?: number
+): { games: number; goals: number } {
   let games = 0;
   let goals = 0;
   for (const match of matches) {
     if (match.status !== 'done' && match.status !== 'voting' && match.status !== 'playing') continue;
+    // 기간 필터
+    if (rangeStart !== undefined && match.date < rangeStart) continue;
+    if (rangeEnd !== undefined && match.date > rangeEnd) continue;
     // Check if member played in any quarter
     let played = false;
     for (const q of match.quarters) {
@@ -55,12 +63,39 @@ function getMemberStats(memberId: string, matches: Match[]): { games: number; go
   return { games, goals };
 }
 
+// 기간 옵션
+type RangeKey = 'all' | 'thisMonth' | 'last30' | 'last3m';
+const RANGE_OPTIONS: { value: RangeKey; label: string }[] = [
+  { value: 'all', label: '전체' },
+  { value: 'thisMonth', label: '이번 달' },
+  { value: 'last30', label: '최근 30일' },
+  { value: 'last3m', label: '최근 3개월' },
+];
+
+function getRangeBounds(key: RangeKey): { start?: number; end?: number } {
+  const now = new Date();
+  if (key === 'all') return {};
+  if (key === 'thisMonth') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
+    return { start, end };
+  }
+  if (key === 'last30') {
+    return { start: now.getTime() - 30 * 24 * 60 * 60 * 1000, end: now.getTime() };
+  }
+  if (key === 'last3m') {
+    return { start: now.getTime() - 90 * 24 * 60 * 60 * 1000, end: now.getTime() };
+  }
+  return {};
+}
+
 export default function MembersPage() {
   const admin = isAdmin();
   const [members, setMembers] = useState<Member[]>(getMembers());
   const [matches, setMatchesState] = useState<Match[]>(getMatches());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [range, setRange] = useState<RangeKey>('thisMonth');
 
   const [name, setName] = useState('');
   const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
@@ -114,16 +149,52 @@ export default function MembersPage() {
     await deleteMember(id);
   };
 
-  const sorted = sortMembers(members);
+  const { start: rangeStart, end: rangeEnd } = getRangeBounds(range);
+  // 기간별 통계 미리 계산
+  const statsByMember = new Map<string, { games: number; goals: number }>();
+  members.forEach(m => {
+    statsByMember.set(m.id, getMemberStats(m.id, matches, rangeStart, rangeEnd));
+  });
+
+  // 기본은 포지션 정렬, 단 기간 필터가 걸린 경우 출전 횟수 내림차순 우선
+  const sorted = range === 'all'
+    ? sortMembers(members)
+    : [...members].sort((a, b) => {
+        const ga = statsByMember.get(a.id)?.games ?? 0;
+        const gb = statsByMember.get(b.id)?.games ?? 0;
+        if (gb !== ga) return gb - ga;
+        return a.name.localeCompare(b.name, 'ko');
+      });
+
+  // 기간 내 1경기 이상 뛴 인원 카운트
+  const activeCount = Array.from(statsByMember.values()).filter(s => s.games > 0).length;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
       {/* Header */}
       <div className="bg-gradient-to-br from-[#1e3a5f] to-[#152d4a] text-white px-5 pt-10 pb-6 rounded-b-3xl shadow-lg">
-        <h1 className="text-xl font-bold tracking-tight">멤버 관리</h1>
-        <p className="text-blue-200 text-sm mt-1">
-          {members.length}명의 멤버가 함께합니다
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">멤버 관리</h1>
+            <p className="text-blue-200 text-sm mt-1">
+              총 {members.length}명
+              {range !== 'all' && (
+                <span className="ml-2 text-[#bef264]">· 출전 {activeCount}명</span>
+              )}
+            </p>
+          </div>
+          <select
+            value={range}
+            onChange={e => setRange(e.target.value as RangeKey)}
+            className="bg-white/10 backdrop-blur border border-white/20 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-white/30"
+          >
+            {RANGE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value} className="text-gray-800">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="px-4 -mt-4 space-y-4">
@@ -247,7 +318,7 @@ export default function MembersPage() {
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-50">
             {sorted.map(member => {
               const positions = member.positions ?? [];
-              const stats = getMemberStats(member.id, matches);
+              const stats = statsByMember.get(member.id) ?? { games: 0, goals: 0 };
               return (
                 <div
                   key={member.id}
