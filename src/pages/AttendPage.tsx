@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, X, HelpCircle, ChevronDown, ChevronUp, MapPin, Calendar, User } from 'lucide-react';
+import { Check, X, HelpCircle, ChevronDown, ChevronUp, MapPin, Calendar } from 'lucide-react';
 import { getMembers, getMatches, subscribe, setAttendance, getCurrentUser } from '../lib/store';
 import type { Member, Match } from '../lib/types';
 
@@ -35,12 +35,9 @@ export default function AttendPage() {
 
   const match = matches.find(m => m.id === matchId);
 
-  // 로그인 상태면 자동으로 본인 ID, 아니면 localStorage 클레임
+  // 로그인 필수 → 항상 본인 ID로 고정
   const loggedInUser = getCurrentUser();
-  const [claimedId, setClaimedId] = useState<string | null>(() => {
-    if (loggedInUser) return loggedInUser.id;
-    return localStorage.getItem('ojifc_attendMemberId');
-  });
+  const claimedId = loggedInUser?.id ?? null;
   const [expanded, setExpanded] = useState<Status | null>('in');
   const [saving, setSaving] = useState(false);
 
@@ -66,17 +63,6 @@ export default function AttendPage() {
   const respondedCount = inCount + outCount + maybeCount;
 
   const barWidth = (n: number) => totalCount > 0 ? `${Math.max(5, (n / totalCount) * 100)}%` : '0%';
-
-  const handleClaim = (memberId: string) => {
-    setClaimedId(memberId);
-    localStorage.setItem('ojifc_attendMemberId', memberId);
-  };
-
-  const handleResetClaim = () => {
-    if (loggedInUser) return; // 로그인 상태에선 변경 불가
-    setClaimedId(null);
-    localStorage.removeItem('ojifc_attendMemberId');
-  };
 
   const handleVote = async (status: Status) => {
     if (!matchId || !claimedId) return;
@@ -167,30 +153,9 @@ export default function AttendPage() {
         </p>
       </div>
 
-      {/* 본인 투표 영역 */}
+      {/* 본인 투표 영역 (로그인 필수) */}
       <div className="px-5 pt-5">
-        {!claimedMember ? (
-          <>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-3">
-              <p className="text-xs font-bold text-yellow-800 mb-1 flex items-center gap-1.5">
-                <User size={12} />
-                먼저 본인 이름을 선택하세요
-              </p>
-              <p className="text-[11px] text-yellow-700">한 번 선택하면 본인 투표만 가능합니다</p>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              {members.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => handleClaim(m.id)}
-                  className="px-2 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-                >
-                  {m.name}
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
+        {claimedMember && (
           <>
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
@@ -203,14 +168,6 @@ export default function AttendPage() {
                     <p className="text-sm font-bold text-gray-900">{claimedMember.name}</p>
                   </div>
                 </div>
-                {!loggedInUser && (
-                  <button
-                    onClick={handleResetClaim}
-                    className="text-[11px] text-yellow-700 underline font-medium"
-                  >
-                    다른 이름이에요
-                  </button>
-                )}
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {(['in', 'out', 'maybe'] as Status[]).map(s => {

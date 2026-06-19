@@ -27,7 +27,6 @@ export default function App() {
 
   const isLoggedIn = user !== null;
   const isLoginPage = location.pathname === '/login';
-  const isPublicPage = location.pathname === '/attend';
 
   // Sync user state when navigating
   useEffect(() => {
@@ -68,7 +67,13 @@ export default function App() {
 
   const handleLogin = () => {
     setUser(getCurrentUser());
-    navigate('/');
+    const intended = sessionStorage.getItem('ojifc_postLoginPath');
+    if (intended) {
+      sessionStorage.removeItem('ojifc_postLoginPath');
+      navigate(intended);
+    } else {
+      navigate('/');
+    }
   };
 
   const handleLogout = () => {
@@ -78,19 +83,13 @@ export default function App() {
     navigate('/login');
   };
 
-  // 공개 페이지 (/attend) - 로그인 불필요
-  if (isPublicPage) {
-    return (
-      <div className="w-full min-h-screen bg-gray-50">
-        <Routes>
-          <Route path="/attend" element={<AttendPage />} />
-        </Routes>
-      </div>
-    );
-  }
-
-  // Redirect to login if not logged in (and not already on login page)
+  // Redirect to login if not logged in (intended path 보존)
   if (!isLoggedIn && !isLoginPage) {
+    // 들어가려던 페이지를 저장 (로그인 후 복귀)
+    const intended = location.pathname + location.search;
+    if (intended && intended !== '/') {
+      sessionStorage.setItem('ojifc_postLoginPath', intended);
+    }
     return (
       <div className="w-full min-h-screen bg-gray-50">
         <Routes>
