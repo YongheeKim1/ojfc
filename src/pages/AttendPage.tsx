@@ -135,7 +135,7 @@ export default function AttendPage() {
                       key={m.id}
                       className={`px-2 py-1 rounded-md text-[11px] font-medium ${
                         m.id === claimedId
-                          ? 'bg-yellow-100 text-yellow-800 ring-1 ring-yellow-300'
+                          ? 'bg-white text-gray-900 ring-1 ring-gray-300 font-bold'
                           : 'bg-gray-50 text-gray-700'
                       }`}
                     >
@@ -157,14 +157,14 @@ export default function AttendPage() {
       <div className="px-5 pt-5">
         {claimedMember && (
           <>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-full bg-yellow-400 flex items-center justify-center text-white font-bold text-sm">
+                  <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 font-bold text-sm">
                     {claimedMember.name.charAt(0)}
                   </div>
                   <div>
-                    <p className="text-[10px] text-yellow-700 font-bold">내 투표</p>
+                    <p className="text-[10px] text-gray-500 font-bold">내 투표</p>
                     <p className="text-sm font-bold text-gray-900">{claimedMember.name}</p>
                   </div>
                 </div>
@@ -190,8 +190,8 @@ export default function AttendPage() {
                 })}
               </div>
               {attendance[claimedId!] && (
-                <p className="text-[11px] text-center mt-2 text-yellow-700 font-medium">
-                  ✓ 투표 완료 (탭하면 변경)
+                <p className="text-[11px] text-center mt-2 text-gray-500 font-medium">
+                  투표 완료 (탭하면 변경)
                 </p>
               )}
             </div>
