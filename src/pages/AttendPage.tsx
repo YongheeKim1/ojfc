@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, X, HelpCircle, MapPin, Calendar } from 'lucide-react';
+import { Check, X, HelpCircle, MapPin, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { getMembers, getMatches, subscribe, setAttendance, getCurrentUser } from '../lib/store';
 import type { Member, Match } from '../lib/types';
 
@@ -38,6 +38,7 @@ export default function AttendPage() {
   // 로그인 필수 → 항상 본인 ID로 고정
   const loggedInUser = getCurrentUser();
   const claimedId = loggedInUser?.id ?? null;
+  const [expanded, setExpanded] = useState<Status | null>('in');
   const [saving, setSaving] = useState(false);
 
   const attendance = match?.attendance || {};
@@ -97,25 +98,52 @@ export default function AttendPage() {
         </div>
       </div>
 
-      {/* 3개 바 (카운트만, 이름 비공개) */}
+      {/* 3개 바 (탭하면 투표자 이름 표시) */}
       <div className="bg-white px-5 py-4 space-y-4">
         {(['in', 'out', 'maybe'] as Status[]).map(status => {
           const info = STATUS_INFO[status];
           const count = status === 'in' ? inCount : status === 'out' ? outCount : maybeCount;
+          const list = groups[status];
+          const isOpen = expanded === status;
           const Icon = info.icon;
 
           return (
             <div key={status}>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <Icon size={14} className={info.color} strokeWidth={3} />
-                  <span className={`text-sm font-bold ${info.color}`}>{info.label}</span>
+              <button
+                onClick={() => setExpanded(isOpen ? null : status)}
+                className="w-full text-left"
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Icon size={14} className={info.color} strokeWidth={3} />
+                    <span className={`text-sm font-bold ${info.color}`}>{info.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                    <span className="font-semibold">{count}명</span>
+                    {isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </div>
                 </div>
-                <span className="text-xs text-gray-500 font-semibold">{count}명</span>
-              </div>
-              <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className={`h-full ${info.bar} rounded-full transition-all`} style={{ width: barWidth(count) }} />
-              </div>
+                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className={`h-full ${info.bar} rounded-full transition-all`} style={{ width: barWidth(count) }} />
+                </div>
+              </button>
+
+              {isOpen && list.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {list.map(m => (
+                    <span
+                      key={m.id}
+                      className={`px-2 py-1 rounded-md text-[11px] font-medium ${
+                        m.id === claimedId
+                          ? 'bg-yellow-100 text-yellow-800 ring-1 ring-yellow-300'
+                          : 'bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      {m.name}{m.id === claimedId && ' (나)'}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
