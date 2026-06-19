@@ -235,7 +235,40 @@ export async function toggleAttendance(matchId: string, memberId: string) {
   const newAttendees = isAttending
     ? attendees.filter(id => id !== memberId)
     : [...attendees, memberId];
-  await updateDoc(doc(db, 'matches', matchId), { attendees: newAttendees });
+  // attendance 맵도 동기화
+  const attendance = { ...(match.attendance || {}) };
+  if (isAttending) {
+    delete attendance[memberId];
+  } else {
+    attendance[memberId] = 'in';
+  }
+  await safeWrite(() => updateDoc(doc(db, 'matches', matchId), {
+    attendees: newAttendees,
+    attendance,
+  } as unknown as Record<string, never>));
+}
+
+// 참석/불참/미정 설정
+export async function setAttendance(
+  matchId: string,
+  memberId: string,
+  status: 'in' | 'out' | 'maybe' | null
+) {
+  const match = matchesCache.find(m => m.id === matchId);
+  if (!match) return;
+  const attendance = { ...(match.attendance || {}) };
+  if (status === null) {
+    delete attendance[memberId];
+  } else {
+    attendance[memberId] = status;
+  }
+  // attendees는 'in' 상태만 동기화
+  const attendees = (match.attendees || []).filter(id => id !== memberId);
+  if (status === 'in') attendees.push(memberId);
+  await safeWrite(() => updateDoc(doc(db, 'matches', matchId), {
+    attendance,
+    attendees,
+  } as unknown as Record<string, never>));
 }
 
 // ──────────────────────────────────────────

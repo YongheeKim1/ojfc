@@ -9,6 +9,7 @@ import MembersPage from './pages/MembersPage';
 import LineupPage from './pages/LineupPage';
 import MatchResultPage from './pages/MatchResultPage';
 import GuestsPage from './pages/GuestsPage';
+import AttendPage from './pages/AttendPage';
 
 const tabs = [
   { to: '/', icon: Home, label: '홈' },
@@ -26,6 +27,7 @@ export default function App() {
 
   const isLoggedIn = user !== null;
   const isLoginPage = location.pathname === '/login';
+  const isPublicPage = location.pathname === '/attend';
 
   // Sync user state when navigating
   useEffect(() => {
@@ -75,6 +77,17 @@ export default function App() {
     setShowLogoutMenu(false);
     navigate('/login');
   };
+
+  // 공개 페이지 (/attend) - 로그인 불필요
+  if (isPublicPage) {
+    return (
+      <div className="w-full min-h-screen bg-gray-50">
+        <Routes>
+          <Route path="/attend" element={<AttendPage />} />
+        </Routes>
+      </div>
+    );
+  }
 
   // Redirect to login if not logged in (and not already on login page)
   if (!isLoggedIn && !isLoginPage) {
@@ -141,6 +154,7 @@ export default function App() {
           <Route path="/lineup" element={<LineupPage />} />
           <Route path="/match" element={<MatchResultPage />} />
           <Route path="/guests" element={<GuestsPage />} />
+          <Route path="/attend" element={<AttendPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

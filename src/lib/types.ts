@@ -85,7 +85,8 @@ export interface Match {
   pomId: string | null;
   voters: string[];
   votes: Record<string, string>;
-  attendees: string[]; // 참석 확인한 멤버 IDs
+  attendees: string[]; // 참석 확인한 멤버 IDs (구 버전 호환)
+  attendance?: Record<string, 'in' | 'out' | 'maybe'>; // memberId → 참/불/미정
   votingStartedAt?: number; // 투표 시작 시간
   status: 'scheduled' | 'lineup' | 'playing' | 'voting' | 'done';
 }

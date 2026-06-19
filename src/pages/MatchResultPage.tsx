@@ -15,6 +15,7 @@ import {
   Trash2,
   Goal,
   X,
+  Share2,
 } from 'lucide-react';
 import { Match, Member, Guest, Position, GoalRecord, getPositionColor } from '../lib/types';
 import {
@@ -180,6 +181,28 @@ export default function MatchResultPage() {
     setNewLocation('');
     setNewOpponent('');
     setShowCreateForm(false);
+  };
+
+  const handleShareAttend = async (m: Match) => {
+    const url = window.location.origin + import.meta.env.BASE_URL + `#/attend?matchId=${m.id}`;
+    const dateStr = new Date(m.date).toLocaleDateString('ko-KR');
+    const headline = `${m.title} 참석 투표`;
+    const text = `${headline}\n\n${dateStr}\n${m.location || '-'}\n\n링크 누르고 본인 이름 옆에 참/불/미정 선택하세요`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ text, url });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(`${text}\n\n${url}`);
+      alert('참석 투표 링크가 복사되었습니다. 카톡에 붙여넣기 하세요!');
+    } catch {
+      prompt('아래 내용을 복사해서 카톡에 붙여넣기 하세요:', `${text}\n\n${url}`);
+    }
   };
 
   const handleDeleteMatch = async (matchId: string) => {
@@ -375,7 +398,7 @@ export default function MatchResultPage() {
                             )}
                           </div>
                           {(match.attendees || []).length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-wrap gap-1.5 mb-2">
                               {(match.attendees || []).map(id => {
                                 const m = members.find(mem => mem.id === id);
                                 return m ? (
@@ -385,6 +408,16 @@ export default function MatchResultPage() {
                                 ) : null;
                               })}
                             </div>
+                          )}
+                          {/* 참석 투표 공유 (admin only) */}
+                          {admin && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleShareAttend(match); }}
+                              className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 bg-yellow-300 hover:bg-yellow-400 text-yellow-900 rounded-lg text-xs font-bold transition-colors"
+                            >
+                              <Share2 size={12} />
+                              참석 투표 카톡 공유
+                            </button>
                           )}
                         </div>
                       )}
