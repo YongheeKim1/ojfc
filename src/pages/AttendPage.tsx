@@ -6,10 +6,10 @@ import type { Member, Match } from '../lib/types';
 
 type Status = 'in' | 'out' | 'maybe';
 
-const STATUS_INFO: Record<Status, { label: string; color: string; bar: string; icon: typeof Check; bg: string }> = {
-  in: { label: '참', color: 'text-yellow-700', bar: 'bg-yellow-400', icon: Check, bg: 'bg-yellow-50' },
-  out: { label: '불', color: 'text-gray-700', bar: 'bg-gray-400', icon: X, bg: 'bg-gray-50' },
-  maybe: { label: '미정', color: 'text-gray-700', bar: 'bg-gray-300', icon: HelpCircle, bg: 'bg-gray-50' },
+const STATUS_INFO: Record<Status, { label: string; color: string; bar: string; icon: typeof Check }> = {
+  in: { label: '참', color: 'text-yellow-700', bar: 'bg-yellow-400', icon: Check },
+  out: { label: '불', color: 'text-gray-700', bar: 'bg-gray-400', icon: X },
+  maybe: { label: '미정', color: 'text-gray-700', bar: 'bg-gray-300', icon: HelpCircle },
 };
 
 function formatDateLong(ts: number): string {
