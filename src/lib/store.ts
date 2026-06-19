@@ -91,7 +91,7 @@ export function getCurrentUser(): Member | null {
   } catch { return null; }
 }
 
-const SESSION_TIMEOUT = 60 * 60 * 1000; // 1시간
+const SESSION_TIMEOUT = 30 * 24 * 60 * 60 * 1000; // 30일
 
 export function setCurrentUser(member: Member) {
   localStorage.setItem('ojifc_currentUser', JSON.stringify(member));
