@@ -236,6 +236,10 @@ export default function MatchResultPage() {
 
   const handleVote = async () => {
     if (!activeVotingId || !currentUser || !selectedVote) return;
+    if (selectedVote === currentUser.id) {
+      alert('자기 자신한테는 투표할 수 없습니다');
+      return;
+    }
     const match = matches.find((m) => m.id === activeVotingId);
     if (!match) return;
     const newVotes = { ...match.votes, [currentUser.id]: selectedVote };
@@ -548,19 +552,31 @@ export default function MatchResultPage() {
                             <div className="grid grid-cols-3 gap-2">
                               {votablePlayers.map((player) => {
                                 const isSelected = selectedVote === player.id;
+                                const isSelf = player.id === currentUser?.id;
                                 const voteCount = voteCounts[player.id] || 0;
                                 const pct = totalVotesForVoting > 0 ? (voteCount / totalVotesForVoting) * 100 : 0;
                                 return (
                                   <button key={player.id}
-                                    onClick={() => { if (!voteSaved) setSelectedVote(player.id); }}
+                                    onClick={() => {
+                                      if (voteSaved) return;
+                                      if (isSelf) {
+                                        alert('자기 자신한테는 투표할 수 없습니다');
+                                        return;
+                                      }
+                                      setSelectedVote(player.id);
+                                    }}
                                     disabled={voteSaved}
                                     className={`relative flex flex-col items-center p-2.5 rounded-xl border-2 transition-all ${
-                                      isSelected ? 'border-[#16a34a] bg-green-50 shadow-md' : 'border-gray-100 bg-gray-50 hover:border-gray-300'
+                                      isSelf
+                                        ? 'border-gray-200 bg-gray-100 opacity-50 cursor-not-allowed'
+                                        : isSelected
+                                          ? 'border-[#16a34a] bg-green-50 shadow-md'
+                                          : 'border-gray-100 bg-gray-50 hover:border-gray-300'
                                     } ${voteSaved && !isSelected ? 'opacity-60' : ''}`}>
                                     <div className="w-9 h-9 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-xs font-bold mb-1">
                                       {player.name.charAt(0)}
                                     </div>
-                                    <span className="text-[11px] font-semibold text-gray-900 truncate w-full text-center">{player.name}</span>
+                                    <span className="text-[11px] font-semibold text-gray-900 truncate w-full text-center">{player.name}{isSelf && ' (나)'}</span>
                                     <div className="flex flex-wrap gap-0.5 justify-center mt-0.5">
                                       {player.positions.map((pos) => (
                                         <span key={pos} className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${getPositionColor(pos)}`}>{pos}</span>

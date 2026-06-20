@@ -59,6 +59,10 @@ export default function HomePage() {
 
   const handleVoteSubmit = async () => {
     if (!votingMatch || !currentUser || !selectedVote || voteSubmitting) return;
+    if (selectedVote === currentUser.id) {
+      alert('자기 자신한테는 투표할 수 없습니다');
+      return;
+    }
     setVoteSubmitting(true);
     const newVotes = { ...votingMatch.votes, [currentUser.id]: selectedVote };
     const newVoters = votingMatch.voters.includes(currentUser.id)
@@ -140,17 +144,26 @@ export default function HomePage() {
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {votablePlayers.map(player => {
                       const isSelected = selectedVote === player.id;
+                      const isSelf = player.id === currentUser?.id;
                       return (
                         <button
                           key={player.id}
-                          onClick={() => setSelectedVote(player.id)}
+                          onClick={() => {
+                            if (isSelf) {
+                              alert('자기 자신한테는 투표할 수 없습니다');
+                              return;
+                            }
+                            setSelectedVote(player.id);
+                          }}
                           className={`px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
-                            isSelected
-                              ? 'bg-yellow-500 text-white shadow-md'
-                              : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
+                            isSelf
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                              : isSelected
+                                ? 'bg-yellow-500 text-white shadow-md'
+                                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
                           }`}
                         >
-                          {player.name}
+                          {player.name}{isSelf && ' (나)'}
                         </button>
                       );
                     })}
