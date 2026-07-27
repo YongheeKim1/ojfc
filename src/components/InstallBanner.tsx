@@ -90,7 +90,10 @@ export default function InstallBanner() {
   // 알림 권한 프롬프트 (이미 설치된 경우)
   if (showNotifPrompt) {
     return (
-      <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-3 flex items-center gap-3">
+      <div
+        className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 pb-3 flex items-center gap-3"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
+      >
         <Bell size={20} className="shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold">알림 받기</p>
@@ -112,7 +115,10 @@ export default function InstallBanner() {
 
   return (
     <>
-      <div className="bg-gradient-to-r from-[#1e3a5f] to-[#16a34a] text-white px-4 py-3 flex items-center gap-3">
+      <div
+        className="bg-gradient-to-r from-[#1e3a5f] to-[#16a34a] text-white px-4 pb-3 flex items-center gap-3"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
+      >
         <Smartphone size={20} className="shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold">앱으로 사용하기</p>
