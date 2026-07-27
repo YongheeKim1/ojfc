@@ -47,7 +47,10 @@ export async function showNotification(
     icon: window.location.origin + BASE_URL + 'logo.png',
     badge: window.location.origin + BASE_URL + 'logo.png',
     tag: opts?.tag,
-    data: { url: opts?.url ? window.location.origin + BASE_URL + '#' + opts.url : window.location.origin + BASE_URL },
+    data: {
+      local: true, // 서비스워커 클릭 핸들러가 FCM 알림과 구분하기 위한 마커
+      url: opts?.url ? window.location.origin + BASE_URL + '#' + opts.url : window.location.origin + BASE_URL,
+    },
   };
 
   try {

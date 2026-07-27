@@ -105,19 +105,25 @@ async function sendPush(messaging, tokens, msg) {
   if (tokens.length === 0) return { sent: 0, invalid: [] };
   const invalid = [];
   let sent = 0;
+  const ICON = 'https://yongheekim1.github.io/ojfc/logo.png';
   // FCM 멀티캐스트는 최대 500개씩
   for (let i = 0; i < tokens.length; i += 500) {
     const batch = tokens.slice(i, i + 500);
     const res = await messaging.sendEachForMulticast({
       tokens: batch,
-      data: {
+      // notification 페이로드 → 앱이 꺼져 있어도 FCM이 자동으로 알림 표시
+      notification: {
         title: msg.title,
         body: msg.body,
-        url: msg.url,
-        tag: msg.tag,
       },
       webpush: {
         headers: { Urgency: 'high', TTL: '86400' },
+        notification: {
+          icon: ICON,
+          badge: ICON,
+          tag: msg.tag,
+        },
+        fcmOptions: { link: msg.url },
       },
     });
     res.responses.forEach((r, idx) => {
