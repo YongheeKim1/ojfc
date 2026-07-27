@@ -1,0 +1,10 @@
+{
+  "name": "oji-fc-push-notifier",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "오지FC GitHub Actions 무료 푸시 알림 서버",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

@@ -67,6 +67,13 @@ export default function App() {
     };
   }, [isLoggedIn, navigate]);
 
+  // 로그인 + 알림 권한 있으면 FCM 토큰 등록/갱신
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    import('./lib/push').then(({ registerPush }) => registerPush());
+  }, [isLoggedIn]);
+
   // Firestore 변경 감지 → 자동 알림
   const prevMatchesRef = useRef<Map<string, Match> | null>(null);
   useEffect(() => {

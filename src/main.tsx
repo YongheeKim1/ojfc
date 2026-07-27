@@ -8,9 +8,16 @@ import { initFirestore } from './lib/store'
 // Firestore 실시간 구독 시작
 initFirestore();
 
-// PWA 서비스워커 등록
+// PWA + FCM 서비스워커 등록 (firebase-messaging-sw.js 하나로 통합)
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/ojfc/sw.js').catch(() => {});
+  // 옛 sw.js 정리 후 FCM 서비스워커 등록
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => {
+      const url = reg.active?.scriptURL || '';
+      if (url.endsWith('/sw.js')) reg.unregister();
+    });
+  }).catch(() => {});
+  navigator.serviceWorker.register('/ojfc/firebase-messaging-sw.js').catch(() => {});
 }
 
 createRoot(document.getElementById('root')!).render(

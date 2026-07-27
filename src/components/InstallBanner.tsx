@@ -81,6 +81,9 @@ export default function InstallBanner() {
     const granted = await requestNotificationPermission();
     setShowNotifPrompt(false);
     if (granted) {
+      // FCM 토큰 등록 (앱 꺼져도 푸시 받기)
+      const { registerPush } = await import('../lib/push');
+      registerPush();
       // 확인용 알림
       const { showNotification } = await import('../lib/notifications');
       showNotification('알림이 설정되었습니다', '새 매치와 라인업 소식을 알려드릴게요!', {});

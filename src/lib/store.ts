@@ -114,6 +114,22 @@ export function logout() {
 }
 
 // ──────────────────────────────────────────
+// FCM 푸시 토큰 저장 (pushTokens/{token})
+// ──────────────────────────────────────────
+export async function savePushToken(token: string, memberId: string, memberName: string) {
+  try {
+    await setDoc(doc(db, 'pushTokens', token), {
+      token,
+      memberId,
+      memberName,
+      updatedAt: Date.now(),
+    });
+  } catch (err) {
+    console.error('푸시 토큰 저장 실패:', err);
+  }
+}
+
+// ──────────────────────────────────────────
 // 권한 체크: admin (DB에서 role 필드 직접 수정) / guest (기본)
 // ──────────────────────────────────────────
 export function isAdmin(): boolean {
