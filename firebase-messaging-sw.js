@@ -1,5 +1,7 @@
-/* 오지FC FCM 서비스워커 (백그라운드 푸시 + 클릭 이동)
-   이 파일이 앱의 유일한 서비스워커 역할을 합니다. */
+/* 오지FC FCM 서비스워커
+   - firebase.messaging() 호출만으로 백그라운드 notification 페이로드를 FCM이 자동 표시
+   - 클릭 이동은 서버가 보낸 webpush.fcmOptions.link 로 FCM이 처리
+   - 아래 notificationclick 핸들러는 앱 내부(로컬) 알림(data.local=true)만 처리 */
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
 
@@ -14,26 +16,15 @@ firebase.initializeApp({
   appId: '1:827240308945:web:de2d82cfc53f7626c0e5f0',
 });
 
-const messaging = firebase.messaging();
+// 이 호출이 백그라운드 푸시(notification 페이로드) 자동 표시를 활성화합니다.
+firebase.messaging();
 
-// 서버(GitHub Actions)는 data-only 페이로드를 보냅니다 → 여기서 직접 표시
-messaging.onBackgroundMessage((payload) => {
-  const d = payload.data || {};
-  const title = d.title || '오지FC';
-  self.registration.showNotification(title, {
-    body: d.body || '',
-    icon: APP_BASE + 'logo.png',
-    badge: APP_BASE + 'logo.png',
-    tag: d.tag || undefined,
-    data: { url: d.url || (self.location.origin + APP_BASE) },
-    vibrate: [100, 50, 100],
-  });
-});
-
-// 알림 클릭 → 앱 열기 / 해당 화면으로 이동 (FCM 푸시 + 앱 내부 로컬 알림 공통)
+// 앱 내부(로컬) 알림 클릭만 처리. FCM 알림은 FCM 기본 핸들러가 link로 이동.
 self.addEventListener('notificationclick', (event) => {
+  const data = event.notification.data || {};
+  if (!data.local) return; // FCM 푸시 알림은 무시 (중복 처리 방지)
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || (self.location.origin + APP_BASE);
+  const targetUrl = data.url || (self.location.origin + APP_BASE);
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
