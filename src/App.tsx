@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut } from 'lucide-react';
-import { getCurrentUser, logout, isSessionExpired, refreshActivity } from './lib/store';
-import type { Member } from './lib/types';
+import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe } from './lib/store';
+import { showNotification } from './lib/notifications';
+import type { Member, Match } from './lib/types';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
 import MembersPage from './pages/MembersPage';
@@ -10,6 +11,7 @@ import LineupPage from './pages/LineupPage';
 import MatchResultPage from './pages/MatchResultPage';
 import GuestsPage from './pages/GuestsPage';
 import AttendPage from './pages/AttendPage';
+import InstallBanner from './components/InstallBanner';
 
 const tabs = [
   { to: '/', icon: Home, label: '홈' },
@@ -65,6 +67,58 @@ export default function App() {
     };
   }, [isLoggedIn, navigate]);
 
+  // Firestore 변경 감지 → 자동 알림
+  const prevMatchesRef = useRef<Map<string, Match> | null>(null);
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    // 첫 스냅샷은 초기 상태로만 저장 (알림 X)
+    prevMatchesRef.current = new Map(getMatches().map(m => [m.id, m]));
+
+    return subscribe(() => {
+      const current = getMatches();
+      const prev = prevMatchesRef.current;
+      if (!prev) {
+        prevMatchesRef.current = new Map(current.map(m => [m.id, m]));
+        return;
+      }
+      for (const m of current) {
+        const before = prev.get(m.id);
+        // 신규 매치 생성
+        if (!before) {
+          const dateStr = new Date(m.date).toLocaleDateString('ko-KR');
+          showNotification(
+            '새 매치가 등록되었습니다',
+            `${m.title} · ${dateStr} · ${m.location}`,
+            { url: '/match', tag: 'match-new', dedupeKey: `match-new-${m.id}` }
+          );
+        } else if (before.status !== m.status) {
+          // 상태 전환
+          if (m.status === 'lineup' || m.status === 'playing') {
+            showNotification(
+              '라인업이 나왔습니다',
+              `${m.title} · 축구장에서 확인하세요`,
+              { url: `/lineup?matchId=${m.id}`, tag: 'lineup', dedupeKey: `lineup-${m.id}` }
+            );
+          } else if (m.status === 'voting') {
+            showNotification(
+              'POM 투표가 시작되었습니다',
+              `${m.title} · 이번 경기 MVP를 뽑아주세요`,
+              { url: '/', tag: 'voting', dedupeKey: `voting-${m.id}` }
+            );
+          } else if (m.status === 'done') {
+            const inCount = (m.attendees || []).length;
+            showNotification(
+              '매치가 종료되었습니다',
+              `${m.title} · 결과: ${m.scoreA} : ${m.scoreB}${inCount ? ` · ${inCount}명 참여` : ''}`,
+              { url: '/match', tag: 'done', dedupeKey: `done-${m.id}` }
+            );
+          }
+        }
+      }
+      prevMatchesRef.current = new Map(current.map(m => [m.id, m]));
+    });
+  }, [isLoggedIn]);
+
   const handleLogin = () => {
     setUser(getCurrentUser());
     const intended = sessionStorage.getItem('ojifc_postLoginPath');
@@ -113,6 +167,9 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-gray-50 relative">
+      {/* PWA 설치 / 알림 권한 배너 */}
+      <InstallBanner />
+
       {/* Top bar with user info */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-100 px-4 py-2.5 flex items-center justify-between">
         <span className="text-sm font-bold text-[#1e3a5f]">오지FC</span>
