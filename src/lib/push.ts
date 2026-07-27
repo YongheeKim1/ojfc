@@ -10,7 +10,7 @@ let registered = false;
 
 export async function registerPush(): Promise<'ok' | 'skip' | 'no-vapid' | 'unsupported' | 'denied' | 'error'> {
   if (registered) return 'ok';
-  if (!VAPID_KEY || VAPID_KEY === 'PASTE_VAPID_KEY_HERE') return 'no-vapid';
+  if (!VAPID_KEY || (VAPID_KEY as string).startsWith('PASTE')) return 'no-vapid';
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return 'denied';
 
   try {
