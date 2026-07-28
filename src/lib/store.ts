@@ -3,7 +3,7 @@ import {
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   query, orderBy
 } from 'firebase/firestore';
-import { Member, Guest, Match, Position } from './types';
+import { Member, Guest, Match, Position, Announcement, Feedback } from './types';
 
 // ──────────────────────────────────────────
 // 로컬 캐시 (동기 접근용) + Firestore 동기화
@@ -12,6 +12,8 @@ import { Member, Guest, Match, Position } from './types';
 let membersCache: Member[] = [];
 let guestsCache: Guest[] = [];
 let matchesCache: Match[] = [];
+let announcementsCache: Announcement[] = [];
+let feedbacksCache: Feedback[] = [];
 let initialized = false;
 
 type Listener = () => void;
@@ -49,6 +51,20 @@ export function initFirestore() {
   const matchesRef = collection(db, 'matches');
   onSnapshot(query(matchesRef, orderBy('date', 'desc')), (snap) => {
     matchesCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
+    notify();
+  });
+
+  // Announcements (전체 공지)
+  const annRef = collection(db, 'announcements');
+  onSnapshot(query(annRef, orderBy('createdAt', 'desc')), (snap) => {
+    announcementsCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement));
+    notify();
+  });
+
+  // Feedbacks (개별 편지)
+  const fbRef = collection(db, 'feedbacks');
+  onSnapshot(query(fbRef, orderBy('createdAt', 'desc')), (snap) => {
+    feedbacksCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Feedback));
     notify();
   });
 }
@@ -132,12 +148,63 @@ export async function savePushToken(token: string, memberId: string, memberName:
 // ──────────────────────────────────────────
 // 권한 체크: admin (DB에서 role 필드 직접 수정) / guest (기본)
 // ──────────────────────────────────────────
-export function isAdmin(): boolean {
-  // 캐시에 반영된 최신 role 확인 (로그인 당시 스냅샷이 아닌 현재 상태)
+function currentRole(): string | undefined {
   const user = getCurrentUser();
-  if (!user) return false;
+  if (!user) return undefined;
   const latest = membersCache.find(m => m.id === user.id);
-  return (latest?.role ?? user.role) === 'admin';
+  return latest?.role ?? user.role;
+}
+
+export function isAdmin(): boolean {
+  // 감독(coach)은 admin 권한 포함
+  const role = currentRole();
+  return role === 'admin' || role === 'coach';
+}
+
+export function isCoach(): boolean {
+  return currentRole() === 'coach';
+}
+
+// ──────────────────────────────────────────
+// 감독: 전체 공지 (announcements) / 개별 편지 (feedbacks)
+// ──────────────────────────────────────────
+export function getAnnouncements(): Announcement[] {
+  return announcementsCache;
+}
+
+export async function saveAnnouncement(content: string, authorName: string): Promise<void> {
+  if (!isCoach()) return;
+  const id = genId();
+  await safeWrite(() => setDoc(doc(db, 'announcements', id), {
+    id, content: content.trim(), authorName, createdAt: Date.now(),
+  }));
+}
+
+export async function deleteAnnouncement(id: string): Promise<void> {
+  if (!isCoach()) return;
+  await safeWrite(() => deleteDoc(doc(db, 'announcements', id)));
+}
+
+export function getFeedbacks(): Feedback[] {
+  return feedbacksCache;
+}
+
+// 특정 멤버가 받은 편지
+export function getFeedbacksForMember(memberId: string): Feedback[] {
+  return feedbacksCache.filter(f => f.memberId === memberId);
+}
+
+export async function saveFeedback(memberId: string, memberName: string, content: string, authorName: string): Promise<void> {
+  if (!isCoach()) return;
+  const id = genId();
+  await safeWrite(() => setDoc(doc(db, 'feedbacks', id), {
+    id, memberId, memberName, content: content.trim(), authorName, createdAt: Date.now(),
+  }));
+}
+
+export async function deleteFeedback(id: string): Promise<void> {
+  if (!isCoach()) return;
+  await safeWrite(() => deleteDoc(doc(db, 'feedbacks', id)));
 }
 
 // ──────────────────────────────────────────

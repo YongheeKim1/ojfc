@@ -86,12 +86,14 @@ function buildMessage(event, match) {
 
 async function loadTokens(db) {
   const snap = await db.collection('pushTokens').get();
-  const tokens = [];
+  const rows = [];
   snap.forEach((d) => {
     const t = d.get('token') || d.id;
-    if (t) tokens.push(t);
+    if (t) rows.push({ token: t, memberId: d.get('memberId') || '' });
   });
-  return [...new Set(tokens)];
+  // 토큰 중복 제거
+  const seen = new Set();
+  return rows.filter((r) => (seen.has(r.token) ? false : (seen.add(r.token), true)));
 }
 
 // 무효 토큰 정리
@@ -157,14 +159,9 @@ async function main() {
   const matches = [];
   matchesSnap.forEach((d) => matches.push({ id: d.id, ...d.data() }));
 
-  if (matches.length === 0) {
-    if (isFirstRun) await stateRef.set({ initialized: true, at: Date.now() });
-    console.log('매치 없음. 종료.');
-    return;
-  }
-
-  const tokens = await loadTokens(db);
-  console.log(`매치 ${matches.length}건, 토큰 ${tokens.length}개, 최초실행=${isFirstRun}`);
+  const tokenRows = await loadTokens(db);
+  const allTokens = tokenRows.map((r) => r.token);
+  console.log(`매치 ${matches.length}건, 토큰 ${allTokens.length}개, 최초실행=${isFirstRun}`);
 
   const allInvalid = new Set();
 
@@ -184,7 +181,7 @@ async function main() {
     for (const event of newEvents) {
       const msg = buildMessage(event, match);
       if (!msg) continue;
-      const { sent, invalid } = await sendPush(messaging, tokens, msg);
+      const { sent, invalid } = await sendPush(messaging, allTokens, msg);
       invalid.forEach((t) => allInvalid.add(t));
       console.log(`[${match.title}] ${event} → ${sent}명 전송`);
     }
@@ -192,6 +189,51 @@ async function main() {
     // 보낸 이벤트 병합 기록
     const merged = Array.from(new Set([...pushed, ...newEvents]));
     await db.collection('matches').doc(match.id).update({ pushedEvents: merged });
+  }
+
+  // ── 감독 전체 공지 (announcements) → 전체 브로드캐스트 ──
+  const annSnap = await db.collection('announcements').get();
+  for (const d of annSnap.docs) {
+    const a = { id: d.id, ...d.data() };
+    if (a.pushed) continue;
+    if (isFirstRun) {
+      await db.collection('announcements').doc(a.id).update({ pushed: true });
+      continue;
+    }
+    const msg = {
+      title: '감독의 한마디',
+      body: a.content || '',
+      url: APP_URL + '#/coach',
+      tag: 'announcement',
+    };
+    const { sent, invalid } = await sendPush(messaging, allTokens, msg);
+    invalid.forEach((t) => allInvalid.add(t));
+    await db.collection('announcements').doc(a.id).update({ pushed: true });
+    console.log(`[공지] → ${sent}명 전송`);
+  }
+
+  // ── 개별 편지 (feedbacks) → 받는 사람 토큰에만 ──
+  const fbSnap = await db.collection('feedbacks').get();
+  for (const d of fbSnap.docs) {
+    const f = { id: d.id, ...d.data() };
+    if (f.pushed) continue;
+    if (isFirstRun) {
+      await db.collection('feedbacks').doc(f.id).update({ pushed: true });
+      continue;
+    }
+    const targetTokens = tokenRows.filter((r) => r.memberId === f.memberId).map((r) => r.token);
+    if (targetTokens.length > 0) {
+      const msg = {
+        title: '감독에게서 편지가 도착했습니다',
+        body: f.content || '',
+        url: APP_URL + '#/coach',
+        tag: 'feedback-' + f.memberId,
+      };
+      const { sent, invalid } = await sendPush(messaging, targetTokens, msg);
+      invalid.forEach((t) => allInvalid.add(t));
+      console.log(`[편지→${f.memberName}] → ${sent}명 전송`);
+    }
+    await db.collection('feedbacks').doc(f.id).update({ pushed: true });
   }
 
   if (allInvalid.size > 0) {

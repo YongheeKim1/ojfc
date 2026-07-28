@@ -1,0 +1,229 @@
+import { useState, useEffect } from 'react';
+import { Megaphone, Mail, Send, Trash2, User } from 'lucide-react';
+import {
+  getAnnouncements, saveAnnouncement, deleteAnnouncement,
+  getFeedbacks, getFeedbacksForMember, saveFeedback, deleteFeedback,
+  getMembers, getCurrentUser, subscribe, isCoach,
+} from '../lib/store';
+import type { Announcement, Feedback, Member } from '../lib/types';
+
+function formatDateTime(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+export default function CoachPage() {
+  const coach = isCoach();
+  const currentUser = getCurrentUser();
+
+  const [announcements, setAnnouncements] = useState<Announcement[]>(getAnnouncements());
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>(getFeedbacks());
+  const [members, setMembers] = useState<Member[]>(getMembers());
+
+  useEffect(() => {
+    return subscribe(() => {
+      setAnnouncements(getAnnouncements());
+      setFeedbacks(getFeedbacks());
+      setMembers(getMembers());
+    });
+  }, []);
+
+  // 작성 상태
+  const [annText, setAnnText] = useState('');
+  const [annSaving, setAnnSaving] = useState(false);
+  const [fbTargetId, setFbTargetId] = useState('');
+  const [fbText, setFbText] = useState('');
+  const [fbSaving, setFbSaving] = useState(false);
+  const [historyMemberId, setHistoryMemberId] = useState<string | null>(null);
+
+  const myFeedbacks = currentUser ? getFeedbacksForMember(currentUser.id) : [];
+
+  const handlePostAnnouncement = async () => {
+    if (!annText.trim() || annSaving) return;
+    setAnnSaving(true);
+    await saveAnnouncement(annText, currentUser?.name ?? '감독');
+    setAnnText('');
+    setAnnSaving(false);
+  };
+
+  const handleSendFeedback = async () => {
+    if (!fbTargetId || !fbText.trim() || fbSaving) return;
+    const target = members.find(m => m.id === fbTargetId);
+    if (!target) return;
+    setFbSaving(true);
+    await saveFeedback(target.id, target.name, fbText, currentUser?.name ?? '감독');
+    setFbText('');
+    setFbSaving(false);
+  };
+
+  const historyList = historyMemberId
+    ? feedbacks.filter(f => f.memberId === historyMemberId)
+    : [];
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-8">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-[#1e3a5f] to-[#152d4a] text-white px-5 pt-10 pb-6 rounded-b-3xl shadow-lg">
+        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+          <Megaphone size={20} /> 감독
+        </h1>
+        <p className="text-blue-200 text-sm mt-1">
+          {coach ? '공지와 개별 피드백을 전달하세요' : '감독의 공지와 나에게 온 편지'}
+        </p>
+      </div>
+
+      <div className="px-4 -mt-4 space-y-5">
+        {/* ── 감독 전용: 작성 ── */}
+        {coach && (
+          <>
+            {/* 전체 공지 작성 */}
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5">
+                <Megaphone size={15} className="text-[#16a34a]" /> 전체 공지 작성
+              </h2>
+              <textarea
+                value={annText}
+                onChange={e => setAnnText(e.target.value)}
+                placeholder="팀 전체에게 전할 말씀을 적어주세요"
+                rows={3}
+                className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-[#16a34a]/30 focus:bg-white transition resize-none"
+              />
+              <button
+                onClick={handlePostAnnouncement}
+                disabled={!annText.trim() || annSaving}
+                className="mt-2 w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-sm font-bold hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Send size={14} /> 공지 등록
+              </button>
+            </div>
+
+            {/* 개별 피드백 작성 */}
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5">
+                <Mail size={15} className="text-blue-500" /> 개별 편지 보내기
+              </h2>
+              <select
+                value={fbTargetId}
+                onChange={e => setFbTargetId(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm mb-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="">받는 사람 선택</option>
+                {members.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <textarea
+                value={fbText}
+                onChange={e => setFbText(e.target.value)}
+                placeholder="개인에게 전할 피드백/편지를 적어주세요"
+                rows={3}
+                className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-blue-400/30 focus:bg-white transition resize-none"
+              />
+              <button
+                onClick={handleSendFeedback}
+                disabled={!fbTargetId || !fbText.trim() || fbSaving}
+                className="mt-2 w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Send size={14} /> 편지 전달
+              </button>
+            </div>
+
+            {/* 멤버별 편지 히스토리 (감독용) */}
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5">
+                <User size={15} className="text-gray-500" /> 멤버별 편지 히스토리
+              </h2>
+              <select
+                value={historyMemberId ?? ''}
+                onChange={e => setHistoryMemberId(e.target.value || null)}
+                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm mb-3 bg-white focus:outline-none focus:ring-2 focus:ring-gray-300"
+              >
+                <option value="">멤버 선택해서 지난 편지 보기</option>
+                {members.map(m => {
+                  const cnt = feedbacks.filter(f => f.memberId === m.id).length;
+                  return <option key={m.id} value={m.id}>{m.name} ({cnt}통)</option>;
+                })}
+              </select>
+              {historyMemberId && (
+                <div className="space-y-2">
+                  {historyList.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-3">보낸 편지가 없습니다</p>
+                  ) : historyList.map(f => (
+                    <div key={f.id} className="bg-gray-50 rounded-xl p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap flex-1">{f.content}</p>
+                        <button
+                          onClick={() => { if (confirm('이 편지를 삭제할까요?')) deleteFeedback(f.id); }}
+                          className="text-gray-300 hover:text-red-500 shrink-0"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1.5">{formatDateTime(f.createdAt)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── 모두: 감독의 한마디 (전체 공지) ── */}
+        <div>
+          <h2 className="text-sm font-bold text-gray-700 mb-2.5 flex items-center gap-1.5 px-1">
+            <Megaphone size={15} className="text-[#16a34a]" /> 감독의 한마디
+          </h2>
+          {announcements.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+              <p className="text-sm text-gray-400">등록된 공지가 없습니다</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {announcements.map(a => (
+                <div key={a.id} className="bg-white rounded-2xl shadow-sm p-4 border-l-4 border-[#16a34a]">
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{a.content}</p>
+                  <div className="flex items-center justify-between mt-2.5">
+                    <span className="text-[11px] text-gray-400">감독 {a.authorName} · {formatDateTime(a.createdAt)}</span>
+                    {coach && (
+                      <button
+                        onClick={() => { if (confirm('이 공지를 삭제할까요?')) deleteAnnouncement(a.id); }}
+                        className="text-gray-300 hover:text-red-500"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── 모두: 나에게 온 편지 ── */}
+        <div>
+          <h2 className="text-sm font-bold text-gray-700 mb-2.5 flex items-center gap-1.5 px-1">
+            <Mail size={15} className="text-blue-500" /> 나에게 온 편지
+            {myFeedbacks.length > 0 && (
+              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">{myFeedbacks.length}</span>
+            )}
+          </h2>
+          {!currentUser ? null : myFeedbacks.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+              <Mail size={28} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-400">아직 받은 편지가 없습니다</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {myFeedbacks.map(f => (
+                <div key={f.id} className="bg-white rounded-2xl shadow-sm p-4 border-l-4 border-blue-400">
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{f.content}</p>
+                  <p className="text-[11px] text-gray-400 mt-2.5">감독 {f.authorName} · {formatDateTime(f.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

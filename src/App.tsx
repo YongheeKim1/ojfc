@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut } from 'lucide-react';
+import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone } from 'lucide-react';
 import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe } from './lib/store';
 import { showNotification } from './lib/notifications';
 import type { Member, Match } from './lib/types';
@@ -11,6 +11,7 @@ import LineupPage from './pages/LineupPage';
 import MatchResultPage from './pages/MatchResultPage';
 import GuestsPage from './pages/GuestsPage';
 import AttendPage from './pages/AttendPage';
+import CoachPage from './pages/CoachPage';
 import InstallBanner from './components/InstallBanner';
 
 const tabs = [
@@ -18,6 +19,7 @@ const tabs = [
   { to: '/members', icon: Users, label: '멤버' },
   { to: '/lineup', icon: LayoutGrid, label: '라인업' },
   { to: '/match', icon: Trophy, label: '매치' },
+  { to: '/coach', icon: Megaphone, label: '감독' },
   { to: '/guests', icon: UserPlus, label: '용병' },
 ];
 
@@ -217,6 +219,7 @@ export default function App() {
           <Route path="/lineup" element={<LineupPage />} />
           <Route path="/match" element={<MatchResultPage />} />
           <Route path="/guests" element={<GuestsPage />} />
+          <Route path="/coach" element={<CoachPage />} />
           <Route path="/attend" element={<AttendPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -232,14 +235,14 @@ export default function App() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex-1 flex flex-col items-center py-2 pt-2.5 text-xs transition-colors ${
+                `flex-1 flex flex-col items-center py-2 pt-2.5 text-[11px] transition-colors ${
                   isActive ? 'text-[#16a34a] font-bold' : 'text-gray-400 hover:text-gray-600'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                  <Icon size={19} strokeWidth={isActive ? 2.5 : 2} />
                   <span className={`mt-1 ${isActive ? 'font-bold' : ''}`}>{label}</span>
                 </>
               )}

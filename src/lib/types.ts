@@ -38,7 +38,25 @@ export interface Member {
   password: string; // 간단한 비밀번호 (4자리 PIN)
   positions: Position[]; // 선호 포지션 (다중 선택)
   pomCount: number;
-  role?: 'admin'; // DB에서만 직접 설정. 없으면 guest 취급.
+  role?: 'admin' | 'coach'; // DB에서만 직접 설정. 없으면 guest. coach=감독(admin 권한 포함 + 공지/편지).
+  createdAt: number;
+}
+
+// 감독의 전체 공지
+export interface Announcement {
+  id: string;
+  content: string;
+  authorName: string; // 작성한 감독 이름
+  createdAt: number;
+}
+
+// 감독이 개인에게 보내는 편지(피드백)
+export interface Feedback {
+  id: string;
+  memberId: string;   // 받는 사람
+  memberName: string; // 받는 사람 이름 (표시용)
+  content: string;
+  authorName: string; // 작성한 감독 이름
   createdAt: number;
 }
 
