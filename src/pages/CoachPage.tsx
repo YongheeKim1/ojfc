@@ -201,6 +201,24 @@ export default function CoachPage() {
                       </button>
                       {isOpen && (
                         <div className="p-3 bg-blue-50/50 border-t border-blue-100">
+                          {/* 이 매치에서 이 멤버에게 보낸 편지 (삭제 가능) */}
+                          {feedbacks.filter(f => f.memberId === m.id && f.matchId === selectedMatch!.id).length > 0 && (
+                            <div className="space-y-1.5 mb-2.5">
+                              {feedbacks
+                                .filter(f => f.memberId === m.id && f.matchId === selectedMatch!.id)
+                                .map(f => (
+                                  <div key={f.id} className="flex items-start justify-between gap-2 bg-white rounded-lg px-2.5 py-1.5 border border-gray-100">
+                                    <p className="text-xs text-gray-700 whitespace-pre-wrap flex-1">{f.content}</p>
+                                    <button
+                                      onClick={() => { if (confirm('이 편지를 삭제할까요?')) deleteFeedback(f.id); }}
+                                      className="text-gray-300 hover:text-red-500 shrink-0 mt-0.5"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
                           <textarea
                             value={fbText}
                             onChange={e => setFbText(e.target.value)}
