@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Users, Calendar, Star, Plus, Swords, Check } from 'lucide-react';
+import { Trophy, Users, Calendar, Star, Plus, Swords, Check, Megaphone } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { getMembers, getMatches, getCurrentUser, subscribe, getGuestsByMatch, updateMatch } from '../lib/store';
+import { getMembers, getMatches, getCurrentUser, subscribe, getGuestsByMatch, updateMatch, getAnnouncements } from '../lib/store';
 import { getPositionColor } from '../lib/types';
 import type { Member, Match } from '../lib/types';
 
@@ -25,15 +25,18 @@ export default function HomePage() {
   const [currentUser, setCurrentUser] = useState<Member | null>(null);
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
+  const [latestAnn, setLatestAnn] = useState(getAnnouncements()[0] ?? null);
 
   useEffect(() => {
     setMembers(getMembers());
     setMatches(getMatches());
     setCurrentUser(getCurrentUser());
+    setLatestAnn(getAnnouncements()[0] ?? null);
     return subscribe(() => {
       setMembers(getMembers());
       setMatches(getMatches());
       setCurrentUser(getCurrentUser());
+      setLatestAnn(getAnnouncements()[0] ?? null);
     });
   }, []);
 
@@ -113,6 +116,19 @@ export default function HomePage() {
       </div>
 
       <div className="px-4 -mt-4 space-y-4">
+        {/* 감독의 한마디 (최신 공지) */}
+        {latestAnn && (
+          <Link to="/coach" className="block bg-white rounded-2xl shadow-sm p-4 border-l-4 border-[#16a34a] active:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Megaphone size={14} className="text-[#16a34a]" />
+              <span className="text-xs font-bold text-[#16a34a]">감독의 한마디</span>
+              <span className="ml-auto text-[10px] text-gray-400">더보기 ›</span>
+            </div>
+            <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed line-clamp-3">{latestAnn.content}</p>
+            <p className="text-[11px] text-gray-400 mt-2">감독 {latestAnn.authorName}</p>
+          </Link>
+        )}
+
         {/* POM 투표 카드 (voting 상태 매치) */}
         {votingMatch && currentUser && (
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden border-2 border-yellow-200">

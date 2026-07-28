@@ -162,7 +162,9 @@ export function isAdmin(): boolean {
 }
 
 export function isCoach(): boolean {
-  return currentRole() === 'coach';
+  // admin도 감독 기능(공지·편지) 사용 가능
+  const role = currentRole();
+  return role === 'coach' || role === 'admin';
 }
 
 // ──────────────────────────────────────────
