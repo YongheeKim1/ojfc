@@ -57,6 +57,8 @@ export interface Feedback {
   memberName: string; // 받는 사람 이름 (표시용)
   content: string;
   authorName: string; // 작성한 감독 이름
+  matchId?: string;   // 어떤 매치에 대한 피드백인지 (선택)
+  matchTitle?: string;
   createdAt: number;
 }
 

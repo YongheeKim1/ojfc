@@ -196,12 +196,17 @@ export function getFeedbacksForMember(memberId: string): Feedback[] {
   return feedbacksCache.filter(f => f.memberId === memberId);
 }
 
-export async function saveFeedback(memberId: string, memberName: string, content: string, authorName: string): Promise<void> {
+export async function saveFeedback(
+  memberId: string, memberName: string, content: string, authorName: string,
+  matchId?: string, matchTitle?: string
+): Promise<void> {
   if (!isCoach()) return;
   const id = genId();
-  await safeWrite(() => setDoc(doc(db, 'feedbacks', id), {
+  const payload: Record<string, unknown> = {
     id, memberId, memberName, content: content.trim(), authorName, createdAt: Date.now(),
-  }));
+  };
+  if (matchId) { payload.matchId = matchId; payload.matchTitle = matchTitle || ''; }
+  await safeWrite(() => setDoc(doc(db, 'feedbacks', id), payload));
 }
 
 export async function deleteFeedback(id: string): Promise<void> {
