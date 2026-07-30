@@ -70,6 +70,7 @@ export interface Guest {
   positions: Position[]; // 선호 포지션 (다중 선택)
   matchId: string; // 참여하는 매치 ID
   ratings: GuestRating[];
+  memo?: string; // 관리자 전용 메모 (admin만 읽기/쓰기)
   createdAt: number;
 }
 

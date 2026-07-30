@@ -9,6 +9,7 @@ import {
   Calendar,
   MapPin,
   Phone,
+  Lock,
 } from 'lucide-react';
 import { Guest, Match, Position, POSITIONS, getPositionColor } from '../lib/types';
 import {
@@ -20,6 +21,8 @@ import {
   getMatches,
   subscribe,
   isAdmin,
+  setGuestMemo,
+  deleteGuestsByMatch,
 } from '../lib/store';
 
 function StarRating({
@@ -88,6 +91,8 @@ export default function GuestsPage() {
   const [ratingScore, setRatingScore] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [memoDraft, setMemoDraft] = useState<Record<string, string>>({});
+  const [memoSaved, setMemoSaved] = useState<string | null>(null);
 
   // Matches available for guest registration (scheduled or lineup)
   const availableMatches = matches.filter(
@@ -310,7 +315,7 @@ export default function GuestsPage() {
                 <div key={matchId}>
                   {/* Match section header */}
                   <div className="flex items-center gap-2 mb-2 px-1">
-                    <Calendar size={13} className="text-[#1e3a5f]" />
+                    <Calendar size={13} className="text-[#1e3a5f] shrink-0" />
                     <span className="text-xs font-bold text-gray-700">
                       {match ? match.title : '알 수 없는 매치'}
                     </span>
@@ -324,6 +329,20 @@ export default function GuestsPage() {
                           {match.location}
                         </span>
                       </>
+                    )}
+                    {/* 매치별 일괄 삭제 (admin only) */}
+                    {admin && (
+                      <button
+                        onClick={async () => {
+                          const label = match ? match.title : '이 매치';
+                          if (!confirm(`${label}의 용병 ${matchGuests.length}명을 모두 삭제할까요?`)) return;
+                          await deleteGuestsByMatch(matchId);
+                        }}
+                        className="ml-auto shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 size={11} />
+                        전체 삭제 ({matchGuests.length})
+                      </button>
                     )}
                   </div>
 
@@ -362,6 +381,12 @@ export default function GuestsPage() {
                                       </span>
                                     ))}
                                   </div>
+                                  {/* 메모 있음 표시 (admin only) */}
+                                  {admin && guest.memo && (
+                                    <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold flex items-center gap-0.5">
+                                      <Lock size={8} /> 메모
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 mt-0.5">
                                   {guest.phone && (
@@ -460,6 +485,34 @@ export default function GuestsPage() {
                                   </button>
                                 </div>
                               </div>
+
+                              {/* 관리자 메모 (admin only - 읽기/쓰기) */}
+                              {admin && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                                  <h3 className="text-sm font-semibold text-amber-900 mb-1 flex items-center gap-1.5">
+                                    <Lock size={12} /> 관리자 메모
+                                  </h3>
+                                  <p className="text-[10px] text-amber-700 mb-2">관리자만 볼 수 있습니다</p>
+                                  <textarea
+                                    value={memoDraft[guest.id] ?? guest.memo ?? ''}
+                                    onChange={(e) => setMemoDraft({ ...memoDraft, [guest.id]: e.target.value })}
+                                    placeholder="예: 신입, 소개로 온 사람, 실력 좋음 등"
+                                    rows={2}
+                                    className="w-full border border-amber-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none"
+                                  />
+                                  <button
+                                    onClick={async () => {
+                                      const val = memoDraft[guest.id] ?? guest.memo ?? '';
+                                      await setGuestMemo(guest.id, val);
+                                      setMemoSaved(guest.id);
+                                      setTimeout(() => setMemoSaved(null), 1500);
+                                    }}
+                                    className="mt-2 w-full bg-amber-500 text-white py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
+                                  >
+                                    {memoSaved === guest.id ? '저장됨' : '메모 저장'}
+                                  </button>
+                                </div>
+                              )}
 
                               {/* 매치 변경 (admin only) */}
                               {admin && (

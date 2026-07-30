@@ -295,6 +295,22 @@ export async function deleteGuest(id: string) {
   await deleteDoc(doc(db, 'guests', id));
 }
 
+// 용병 메모 저장 (admin 전용)
+export async function setGuestMemo(guestId: string, memo: string) {
+  if (!isAdmin()) return;
+  await safeWrite(() => updateDoc(doc(db, 'guests', guestId), { memo } as unknown as Record<string, never>));
+}
+
+// 특정 매치의 용병 일괄 삭제 (admin 전용) → 삭제된 개수 반환
+export async function deleteGuestsByMatch(matchId: string): Promise<number> {
+  if (!isAdmin()) return 0;
+  const targets = guestsCache.filter(g => g.matchId === matchId);
+  await safeWrite(() => Promise.all(
+    targets.map(g => deleteDoc(doc(db, 'guests', g.id)))
+  ));
+  return targets.length;
+}
+
 // ──────────────────────────────────────────
 // Matches (Firestore)
 // ──────────────────────────────────────────
