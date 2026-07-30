@@ -69,9 +69,16 @@ export default function CoachPage() {
   const [fbOpenMemberId, setFbOpenMemberId] = useState<string | null>(null); // 피드백 작성 중인 멤버
   const [fbText, setFbText] = useState('');
   const [fbSaving, setFbSaving] = useState(false);
-  const [historyMemberId, setHistoryMemberId] = useState<string | null>(null);
+  // 개인 편지(매치 무관)
+  const [directTargetId, setDirectTargetId] = useState('');
+  const [directText, setDirectText] = useState('');
+  const [directSaving, setDirectSaving] = useState(false);
 
   const myFeedbacks = currentUser ? getFeedbacksForMember(currentUser.id) : [];
+  // 내가 보낸 편지만 (남의 편지 히스토리는 안 보임)
+  const mySentFeedbacks = currentUser
+    ? feedbacks.filter(f => f.authorName === currentUser.name)
+    : [];
 
   // 라인업이 있는 매치만 (그날 뛴 사람 확인 가능)
   const lineupMatches = matches.filter(m => (m.quarters || []).length > 0);
@@ -102,9 +109,16 @@ export default function CoachPage() {
     setFbSaving(false);
   };
 
-  const historyList = historyMemberId
-    ? feedbacks.filter(f => f.memberId === historyMemberId)
-    : [];
+  // 개인 편지 전송 (매치 정보 없음)
+  const handleSendDirect = async () => {
+    if (!directTargetId || !directText.trim() || directSaving) return;
+    const target = members.find(m => m.id === directTargetId);
+    if (!target) return;
+    setDirectSaving(true);
+    await saveFeedback(target.id, target.name, directText, currentUser?.name ?? '감독');
+    setDirectText('');
+    setDirectSaving(false);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
@@ -242,31 +256,59 @@ export default function CoachPage() {
               </div>
             </div>
 
-            {/* 멤버별 편지 히스토리 (감독용) */}
+            {/* 개인 편지 (매치와 무관) */}
             <div className="bg-white rounded-2xl shadow-sm p-5">
-              <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5">
-                <User size={15} className="text-gray-500" /> 멤버별 편지 히스토리
+              <h2 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-1.5">
+                <User size={15} className="text-purple-500" /> 개인 편지
               </h2>
+              <p className="text-[11px] text-gray-400 mb-3">매치와 상관없이 개인에게 전할 말</p>
               <select
-                value={historyMemberId ?? ''}
-                onChange={e => setHistoryMemberId(e.target.value || null)}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm mb-3 bg-white focus:outline-none focus:ring-2 focus:ring-gray-300"
+                value={directTargetId}
+                onChange={e => setDirectTargetId(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm mb-2 bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
               >
-                <option value="">멤버 선택해서 지난 편지 보기</option>
-                {members.map(m => {
-                  const cnt = feedbacks.filter(f => f.memberId === m.id).length;
-                  return <option key={m.id} value={m.id}>{m.name} ({cnt}통)</option>;
-                })}
+                <option value="">받는 사람 선택</option>
+                {members.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
               </select>
-              {historyMemberId && (
+              <textarea
+                value={directText}
+                onChange={e => setDirectText(e.target.value)}
+                placeholder="개인에게 전할 말씀을 적어주세요"
+                rows={3}
+                className="w-full px-3.5 py-2.5 bg-gray-50 rounded-xl text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-purple-400/30 focus:bg-white transition resize-none"
+              />
+              <button
+                onClick={handleSendDirect}
+                disabled={!directTargetId || !directText.trim() || directSaving}
+                className="mt-2 w-full py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Send size={14} /> 편지 전달
+              </button>
+            </div>
+
+            {/* 내가 보낸 편지 */}
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-1.5">
+                <Mail size={15} className="text-gray-500" /> 내가 보낸 편지
+                {mySentFeedbacks.length > 0 && (
+                  <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-bold">{mySentFeedbacks.length}</span>
+                )}
+              </h2>
+              <p className="text-[11px] text-gray-400 mb-3">내가 보낸 편지만 표시됩니다</p>
+              {mySentFeedbacks.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-3">보낸 편지가 없습니다</p>
+              ) : (
                 <div className="space-y-2">
-                  {historyList.length === 0 ? (
-                    <p className="text-xs text-gray-400 text-center py-3">보낸 편지가 없습니다</p>
-                  ) : historyList.map(f => (
+                  {mySentFeedbacks.map(f => (
                     <div key={f.id} className="bg-gray-50 rounded-xl p-3">
-                      {f.matchTitle && (
-                        <span className="inline-block text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold mb-1.5">{f.matchTitle}</span>
-                      )}
+                      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">→ {f.memberName}</span>
+                        {f.matchTitle && (
+                          <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">{f.matchTitle}</span>
+                        )}
+                      </div>
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm text-gray-800 whitespace-pre-wrap flex-1">{f.content}</p>
                         <button
