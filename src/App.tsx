@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone } from 'lucide-react';
-import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe } from './lib/store';
+import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe, getAnnouncements, getFeedbacks } from './lib/store';
 import { showNotification } from './lib/notifications';
 import type { Member, Match } from './lib/types';
 import LoginPage from './pages/LoginPage';
@@ -125,6 +125,50 @@ export default function App() {
         }
       }
       prevMatchesRef.current = new Map(current.map(m => [m.id, m]));
+    });
+  }, [isLoggedIn]);
+
+  // 감독 공지 / 내 편지 변경 감지 → 앱 켜져 있으면 즉시 알림
+  const prevAnnIdsRef = useRef<Set<string> | null>(null);
+  const prevFbIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    prevAnnIdsRef.current = new Set(getAnnouncements().map(a => a.id));
+    const me = getCurrentUser();
+    prevFbIdsRef.current = new Set(
+      getFeedbacks().filter(f => f.memberId === me?.id).map(f => f.id)
+    );
+
+    return subscribe(() => {
+      const meNow = getCurrentUser();
+
+      // 새 공지
+      const anns = getAnnouncements();
+      const prevAnn = prevAnnIdsRef.current;
+      if (prevAnn) {
+        for (const a of anns) {
+          if (!prevAnn.has(a.id)) {
+            showNotification('감독의 한마디', a.content, {
+              url: '/coach', tag: 'announcement', dedupeKey: `ann-${a.id}`,
+            });
+          }
+        }
+      }
+      prevAnnIdsRef.current = new Set(anns.map(a => a.id));
+
+      // 나에게 온 새 편지
+      const myFbs = getFeedbacks().filter(f => f.memberId === meNow?.id);
+      const prevFb = prevFbIdsRef.current;
+      if (prevFb) {
+        for (const f of myFbs) {
+          if (!prevFb.has(f.id)) {
+            showNotification('감독에게서 편지가 도착했습니다', f.content, {
+              url: '/coach', tag: 'feedback', dedupeKey: `fb-${f.id}`,
+            });
+          }
+        }
+      }
+      prevFbIdsRef.current = new Set(myFbs.map(f => f.id));
     });
   }, [isLoggedIn]);
 

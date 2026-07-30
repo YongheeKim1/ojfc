@@ -2,11 +2,12 @@ name: 오지FC 푸시 알림
 
 on:
   schedule:
-    # 5분마다 (GitHub 부하에 따라 다소 지연될 수 있음)
-    - cron: '*/5 * * * *'
+    # 2분마다 요청 (GitHub 스케줄러 부하에 따라 실제로는 5~30분 지연될 수 있음.
+    # 간격을 짧게 두면 대기열에 자주 들어가 평균 지연이 줄어듭니다.)
+    - cron: '*/2 * * * *'
   workflow_dispatch: {} # 수동 실행 버튼
 
-# 동시에 두 번 돌지 않도록
+# 동시에 두 번 돌지 않도록 (전송 도중 취소되면 중복 알림 위험이 있어 false 유지)
 concurrency:
   group: push-notify
   cancel-in-progress: false
