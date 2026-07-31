@@ -8,7 +8,9 @@ import {
   deleteMember,
   subscribe,
   isAdmin,
+  getGuests,
 } from '../lib/store';
+import { computePlayerStats, playerName } from '../lib/stats';
 import type { Member, Match, Position } from '../lib/types';
 import { POSITIONS, getPositionColor } from '../lib/types';
 
@@ -110,6 +112,7 @@ export default function MembersPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>(getCurrentMonthKey());
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
@@ -334,10 +337,12 @@ export default function MembersPage() {
             {sorted.map(member => {
               const positions = member.positions ?? [];
               const stats = statsByMember.get(member.id) ?? { games: 0, goals: 0 };
+              const isAnalysisOpen = analysisId === member.id;
               return (
+                <div key={member.id}>
                 <div
-                  key={member.id}
-                  className="flex items-center gap-3 px-5 py-3.5"
+                  className="flex items-center gap-3 px-5 py-3.5 cursor-pointer active:bg-gray-50"
+                  onClick={() => setAnalysisId(isAnalysisOpen ? null : member.id)}
                 >
                   {/* Name + Stats */}
                   <div className="flex-1 min-w-0">
@@ -375,13 +380,13 @@ export default function MembersPage() {
                   {admin && (
                     <div className="flex items-center gap-1 ml-1">
                       <button
-                        onClick={() => handleEdit(member)}
+                        onClick={(e) => { e.stopPropagation(); handleEdit(member); }}
                         className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 active:bg-gray-100 transition-colors"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => handleDelete(member.id)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(member.id); }}
                         className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 active:bg-red-50 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -389,11 +394,92 @@ export default function MembersPage() {
                     </div>
                   )}
                 </div>
+
+                {/* 승률 분석 패널 */}
+                {isAnalysisOpen && <AnalysisPanel memberId={member.id} matches={matches} members={members} />}
+                </div>
               );
             })}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── 선수 승률 분석 패널 (쿼터별 결과 기반) ──
+function AnalysisPanel({ memberId, matches, members }: { memberId: string; matches: Match[]; members: Member[] }) {
+  const stats = computePlayerStats(memberId, matches);
+  const guests = getGuests();
+
+  if (stats.totalPlayed === 0) {
+    return (
+      <div className="px-5 pb-4 bg-gray-50/70">
+        <p className="text-[11px] text-gray-400 py-3 text-center">
+          쿼터별 결과가 입력된 경기가 없습니다.<br />
+          매치 결과 입력 시 쿼터 점수를 넣으면 분석이 시작됩니다.
+        </p>
+      </div>
+    );
+  }
+
+  const pct = (r: number) => `${Math.round(r * 100)}%`;
+  const topPairs = stats.pairs.filter(p => p.played >= 2).slice(0, 3);
+  const bestSlot = stats.bySlot.slice().sort((a, b) => b.rate - a.rate)[0];
+
+  return (
+    <div className="px-5 pb-4 pt-1 bg-gray-50/70 space-y-3">
+      {/* 요약 */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 bg-white rounded-xl p-2.5 text-center">
+          <p className="text-[9px] text-gray-400 font-medium">출전 쿼터</p>
+          <p className="text-sm font-bold text-gray-800">{stats.totalPlayed}</p>
+        </div>
+        <div className="flex-1 bg-white rounded-xl p-2.5 text-center">
+          <p className="text-[9px] text-gray-400 font-medium">승 / 무 / 패</p>
+          <p className="text-sm font-bold text-gray-800">{stats.win}/{stats.draw}/{stats.loss}</p>
+        </div>
+        <div className="flex-1 bg-white rounded-xl p-2.5 text-center">
+          <p className="text-[9px] text-gray-400 font-medium">승률</p>
+          <p className="text-sm font-bold text-green-600">{pct(stats.overallRate)}</p>
+        </div>
+      </div>
+
+      {/* 포지션별 승률 */}
+      <div>
+        <p className="text-[10px] font-bold text-gray-600 mb-1.5">
+          자리별 승률
+          {bestSlot && <span className="ml-1 text-green-600">· 최고 {bestSlot.label}</span>}
+        </p>
+        <div className="space-y-1">
+          {stats.bySlot.map(s => (
+            <div key={s.label} className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-gray-700 w-9">{s.label}</span>
+              <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.round(s.rate * 100)}%` }} />
+              </div>
+              <span className="text-[10px] text-gray-500 w-8 text-right">{pct(s.rate)}</span>
+              <span className="text-[9px] text-gray-400 w-12 text-right">{s.played}쿼터</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 잘 맞는 짝 */}
+      {topPairs.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-600 mb-1.5">잘 맞는 짝</p>
+          <div className="flex flex-wrap gap-1.5">
+            {topPairs.map(p => (
+              <span key={p.partnerId} className="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded-lg">
+                <span className="font-bold text-gray-800">{playerName(p.partnerId, members, guests)}</span>
+                <span className="text-green-600 font-bold ml-1">{pct(p.rate)}</span>
+                <span className="text-gray-400 ml-1">({p.played})</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

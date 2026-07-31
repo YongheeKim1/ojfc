@@ -306,6 +306,7 @@ export default function LineupPage() {
     match && (match.status === 'lineup' || match.status === 'playing' || (match.status === 'done' && match.quarters?.length > 0) || (match.status === 'voting' && match.quarters?.length > 0)) ? 'lineup' : 'select'
   );
   const [formation, setFormation] = useState(match?.formation ?? '4-2-3-1');
+  const [smartMode, setSmartMode] = useState(true); // 지난 경기 데이터 기반 배치
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     // Derive from existing quarters if available
     if (match?.quarters?.length) {
@@ -399,7 +400,7 @@ export default function LineupPage() {
   const handleGenerateLineup = async () => {
     if (!matchId || !admin) return;
     const ids = Array.from(selectedIds);
-    const result = generateQuarterLineups(ids, formation);
+    const result = generateQuarterLineups(ids, formation, smartMode);
     setQuarters(result);
     setActiveQuarter(0);
     setStep('lineup');
@@ -421,7 +422,7 @@ export default function LineupPage() {
   const handleReshuffle = async () => {
     if (!matchId || !admin) return;
     const ids = Array.from(selectedIds);
-    const result = generateQuarterLineups(ids, formation);
+    const result = generateQuarterLineups(ids, formation, smartMode);
     setQuarters(result);
     setSwapSelectedId(null);
 
@@ -846,6 +847,34 @@ export default function LineupPage() {
               </span>
             </div>
           )}
+
+          {/* 배치 방식 선택 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3">
+            <p className="text-xs font-bold text-gray-700 mb-2">배치 방식</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setSmartMode(true)}
+                className={`py-2.5 rounded-lg text-xs font-bold transition-colors ${
+                  smartMode ? 'bg-green-600 text-white shadow' : 'bg-gray-50 text-gray-600 border border-gray-200'
+                }`}
+              >
+                스마트 배치
+              </button>
+              <button
+                onClick={() => setSmartMode(false)}
+                className={`py-2.5 rounded-lg text-xs font-bold transition-colors ${
+                  !smartMode ? 'bg-gray-700 text-white shadow' : 'bg-gray-50 text-gray-600 border border-gray-200'
+                }`}
+              >
+                랜덤 배치
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2 leading-relaxed">
+              {smartMode
+                ? '지난 경기 쿼터 결과를 분석해 자리별 승률과 선수 궁합이 좋은 조합으로 배치합니다.'
+                : '선호 포지션 안에서 무작위로 배치합니다.'}
+            </p>
+          </div>
 
           {/* Generate button */}
           <button

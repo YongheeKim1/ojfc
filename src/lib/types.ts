@@ -80,6 +80,13 @@ export interface GuestRating {
   date: number;
 }
 
+// 쿼터별 경기 결과 (승률/시너지 분석의 기초 데이터)
+export interface QuarterResult {
+  quarter: 1 | 2 | 3 | 4;
+  us: number;   // 우리 팀 득점
+  them: number; // 상대 팀 득점
+}
+
 // 쿼터별 라인업: 11명 출전 + 나머지 휴식
 export interface QuarterLineup {
   quarter: 1 | 2 | 3 | 4;
@@ -106,6 +113,7 @@ export interface Match {
   pomId: string | null;
   voters: string[];
   votes: Record<string, string>;
+  quarterResults?: QuarterResult[]; // 쿼터별 결과 (승률 분석용)
   attendees: string[]; // 참석 확인한 멤버 IDs (구 버전 호환)
   attendance?: Record<string, 'in' | 'out' | 'maybe'>; // memberId → 참/불/미정
   votingStartedAt?: number; // 투표 시작 시간

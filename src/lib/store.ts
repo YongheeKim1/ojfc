@@ -4,6 +4,7 @@ import {
   query, orderBy
 } from 'firebase/firestore';
 import { Member, Guest, Match, Position, Announcement, Feedback } from './types';
+import { computeAllStats, slotRate, pairRate } from './stats';
 
 // ──────────────────────────────────────────
 // 로컬 캐시 (동기 접근용) + Firestore 동기화
@@ -534,16 +535,82 @@ export function autoAssignLineup(
   return assignment;
 }
 
+/**
+ * 스마트 배치: 그룹 제약(희망 라인)은 그대로 지키면서,
+ * 쿼터별 결과에서 뽑은 "그 자리 승률" + "같이 뛴 선수와의 시너지"로 최적 조합을 찾습니다.
+ * 기록이 없는 선수는 중립(0.5)으로 취급되어 불이익이 없습니다.
+ */
+export function autoAssignLineupSmart(
+  playerIds: string[],
+  formation: string,
+  matches: Match[]
+): Record<string, string> {
+  const slots = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
+  const players = playerIds.map(id => {
+    const info = getPlayerInfo(id);
+    return info ? { id, positions: info.positions } : null;
+  }).filter(Boolean) as { id: string; positions: Position[] }[];
+
+  const statsMap = computeAllStats(players.map(p => p.id), matches);
+
+  // 슬롯별 배치 가능 후보 (그룹 제약)
+  const eligible = new Map<string, { id: string; exact: boolean }[]>();
+  for (const slot of slots) {
+    const group = getSlotGroup(slot.label);
+    const list = players
+      .filter(p => playerMatchesGroup(p.positions, group))
+      .map(p => ({ id: p.id, exact: expandPositions(p.positions).includes(slot.label) }));
+    eligible.set(slot.id, list);
+  }
+
+  const assignment: Record<string, string> = {};
+  const used = new Set<string>();
+
+  // 후보가 적은(제약이 강한) 슬롯부터 채워야 빈자리가 덜 생깁니다.
+  const order = [...slots].sort(
+    (a, b) => (eligible.get(a.id)?.length ?? 0) - (eligible.get(b.id)?.length ?? 0)
+  );
+
+  for (const slot of order) {
+    const cands = (eligible.get(slot.id) || []).filter(c => !used.has(c.id));
+    if (cands.length === 0) continue;
+
+    const placed = Object.values(assignment);
+    let best = cands[0];
+    let bestScore = -Infinity;
+
+    for (const c of cands) {
+      const st = statsMap.get(c.id);
+      const posScore = slotRate(st, slot.label);
+      const synergy = placed.length
+        ? placed.reduce((sum, pid) => sum + pairRate(st, pid), 0) / placed.length
+        : 0.5;
+      // 자리 적합도 위주 + 시너지 보조 + 선호 포지션 정확 일치 보너스
+      const score = posScore * 0.6 + synergy * 0.25 + (c.exact ? 0.15 : 0);
+      if (score > bestScore) { bestScore = score; best = c; }
+    }
+
+    assignment[slot.id] = best.id;
+    used.add(best.id);
+  }
+
+  return assignment;
+}
+
 export function generateQuarterLineups(
   playerIds: string[],
-  formation: string
+  formation: string,
+  smart = false
 ): { playing: Record<string, string>; resting: string[] }[] {
   const total = playerIds.length;
+  // smart=true면 지난 쿼터 결과 기반 최적 배치, 아니면 기존 랜덤 배치
+  const assign = (ids: string[]) =>
+    smart ? autoAssignLineupSmart(ids, formation, matchesCache) : autoAssignLineup(ids, formation);
 
   // 11명 이하: 전원 출전, 배치 못 하면 휴식
   if (total <= 11) {
     return [0, 1, 2, 3].map(() => {
-      const playing = autoAssignLineup(playerIds, formation);
+      const playing = assign(playerIds);
       const assignedIds = new Set(Object.values(playing));
       const resting = playerIds.filter(id => !assignedIds.has(id));
       return { playing, resting };
@@ -582,9 +649,9 @@ export function generateQuarterLineups(
     }
   }
 
-  // 포지션 배치: 선택된 11명 → autoAssign, 나머지 전부 휴식
+  // 포지션 배치: 선택된 11명 → 배치, 나머지 전부 휴식
   return quarterAssignments.map(selected => {
-    const playing = autoAssignLineup(selected, formation);
+    const playing = assign(selected);
     // 필드에 배치된 선수 ID
     const assignedIds = new Set(Object.values(playing));
     // 필드에 안 들어간 모든 선수 = 휴식 (선택됐지만 그룹 불일치 + 아예 선택 안 된 선수)
