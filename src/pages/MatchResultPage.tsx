@@ -506,56 +506,11 @@ export default function MatchResultPage() {
 
                           {/* 쿼터별 결과 (승률 분석용) */}
                           <div className="mt-4 pt-3 border-t border-gray-100">
-                            <h5 className="text-[11px] font-bold text-gray-600 mb-1">쿼터별 결과</h5>
-                            <p className="text-[10px] text-gray-400 mb-2">선수별 자리 승률·궁합 분석에 사용됩니다 (선택 입력)</p>
-                            <div className="space-y-1.5">
-                              {qScores.map((q, i) => (
-                                <div key={i} className="flex items-center gap-2">
-                                  <span className="text-[10px] font-bold text-gray-500 w-6">{i + 1}Q</span>
-                                  <input
-                                    type="number" min={0} max={99} inputMode="numeric"
-                                    value={q.us}
-                                    onChange={(e) => {
-                                      const next = [...qScores];
-                                      next[i] = { ...next[i], us: e.target.value };
-                                      setQScores(next);
-                                    }}
-                                    placeholder="우리"
-                                    className="flex-1 h-9 text-center text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                  />
-                                  <span className="text-xs text-gray-400">:</span>
-                                  <input
-                                    type="number" min={0} max={99} inputMode="numeric"
-                                    value={q.them}
-                                    onChange={(e) => {
-                                      const next = [...qScores];
-                                      next[i] = { ...next[i], them: e.target.value };
-                                      setQScores(next);
-                                    }}
-                                    placeholder="상대"
-                                    className="flex-1 h-9 text-center text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400"
-                                  />
-                                  {q.us !== '' && q.them !== '' && (
-                                    <span className={`text-[10px] font-bold w-6 text-center ${
-                                      Number(q.us) > Number(q.them) ? 'text-green-600'
-                                        : Number(q.us) < Number(q.them) ? 'text-red-500' : 'text-gray-400'
-                                    }`}>
-                                      {Number(q.us) > Number(q.them) ? '승' : Number(q.us) < Number(q.them) ? '패' : '무'}
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                            <button
-                              onClick={() => {
-                                const totUs = qScores.reduce((s, q) => s + (q.us === '' ? 0 : Number(q.us) || 0), 0);
-                                const totThem = qScores.reduce((s, q) => s + (q.them === '' ? 0 : Number(q.them) || 0), 0);
-                                setScoreA(totUs); setScoreB(totThem);
-                              }}
-                              className="mt-2 w-full py-1.5 bg-gray-100 text-gray-600 rounded-lg text-[10px] font-bold hover:bg-gray-200 transition-colors"
-                            >
-                              쿼터 합계를 총점에 반영
-                            </button>
+                            <QuarterResultEditor
+                              value={qScores}
+                              onChange={setQScores}
+                              onApplyTotal={(u, t) => { setScoreA(u); setScoreB(t); }}
+                            />
                           </div>
 
                           {/* Goal records */}
@@ -766,6 +721,13 @@ export default function MatchResultPage() {
 
                     {isExpanded && (
                       <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
+                        {/* 지난 경기 쿼터 결과 입력 (admin) */}
+                        {admin && (
+                          <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3">
+                            <PastQuarterEditor match={match} />
+                          </div>
+                        )}
+
                         {/* Goal records */}
                         {matchGoals.length > 0 && (
                           <div>
@@ -826,6 +788,180 @@ export default function MatchResultPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────
+// 쿼터별 결과 입력 (승/무/패 원터치 + 점수 직접 입력)
+// ──────────────────────────────────────────
+type QScore = { us: string; them: string };
+
+function QuarterResultEditor({
+  value,
+  onChange,
+  onApplyTotal,
+}: {
+  value: QScore[];
+  onChange: (v: QScore[]) => void;
+  onApplyTotal?: (us: number, them: number) => void;
+}) {
+  const [showScores, setShowScores] = useState(false);
+
+  const outcome = (q: QScore): 'W' | 'D' | 'L' | null => {
+    if (q.us === '' || q.them === '') return null;
+    const u = Number(q.us), t = Number(q.them);
+    if (isNaN(u) || isNaN(t)) return null;
+    return u > t ? 'W' : u < t ? 'L' : 'D';
+  };
+
+  // 승/무/패 버튼: 점수를 아직 안 넣었으면 대표값(1:0 / 0:0 / 0:1)으로 채움
+  const setOutcome = (i: number, o: 'W' | 'D' | 'L') => {
+    const next = [...value];
+    if (outcome(next[i]) === o) {
+      next[i] = { us: '', them: '' }; // 같은 버튼 다시 누르면 해제
+    } else {
+      next[i] = o === 'W' ? { us: '1', them: '0' }
+        : o === 'D' ? { us: '0', them: '0' }
+        : { us: '0', them: '1' };
+    }
+    onChange(next);
+  };
+
+  const filled = value.filter(q => outcome(q) !== null).length;
+  const totUs = value.reduce((s, q) => s + (q.us === '' ? 0 : Number(q.us) || 0), 0);
+  const totThem = value.reduce((s, q) => s + (q.them === '' ? 0 : Number(q.them) || 0), 0);
+
+  const BTN = [
+    { key: 'W' as const, label: '승', on: 'bg-green-500 text-white', off: 'bg-white text-gray-500 border border-gray-200' },
+    { key: 'D' as const, label: '무', on: 'bg-gray-400 text-white', off: 'bg-white text-gray-500 border border-gray-200' },
+    { key: 'L' as const, label: '패', on: 'bg-red-500 text-white', off: 'bg-white text-gray-500 border border-gray-200' },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <h5 className="text-[11px] font-bold text-gray-600">쿼터별 결과</h5>
+        <span className="text-[10px] text-gray-400">{filled}/4 입력됨</span>
+      </div>
+      <p className="text-[10px] text-gray-400 mb-2">
+        선수 자리별 승률·궁합 분석에 사용됩니다. 승/무/패만 눌러도 됩니다.
+      </p>
+
+      <div className="space-y-1.5">
+        {value.map((q, i) => {
+          const o = outcome(q);
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-gray-500 w-6 shrink-0">{i + 1}Q</span>
+              <div className="flex gap-1 flex-1">
+                {BTN.map(b => (
+                  <button
+                    key={b.key}
+                    onClick={() => setOutcome(i, b.key)}
+                    className={`flex-1 h-9 rounded-lg text-xs font-bold transition-colors ${o === b.key ? b.on : b.off}`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+              {showScores && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <input
+                    type="number" min={0} max={99} inputMode="numeric"
+                    value={q.us}
+                    onChange={(e) => {
+                      const next = [...value];
+                      next[i] = { ...next[i], us: e.target.value };
+                      onChange(next);
+                    }}
+                    className="w-10 h-9 text-center text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <span className="text-[10px] text-gray-400">:</span>
+                  <input
+                    type="number" min={0} max={99} inputMode="numeric"
+                    value={q.them}
+                    onChange={(e) => {
+                      const next = [...value];
+                      next[i] = { ...next[i], them: e.target.value };
+                      onChange(next);
+                    }}
+                    className="w-10 h-9 text-center text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400"
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-1.5 mt-2">
+        <button
+          onClick={() => setShowScores(!showScores)}
+          className="flex-1 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-[10px] font-bold hover:bg-gray-200 transition-colors"
+        >
+          {showScores ? '점수 입력 숨기기' : '정확한 점수 입력'}
+        </button>
+        <button
+          onClick={() => onChange([0, 1, 2, 3].map(() => ({ us: '', them: '' })))}
+          className="px-3 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-[10px] font-bold hover:bg-gray-200 transition-colors"
+        >
+          초기화
+        </button>
+      </div>
+
+      {showScores && onApplyTotal && (
+        <button
+          onClick={() => onApplyTotal(totUs, totThem)}
+          className="mt-1.5 w-full py-1.5 bg-gray-100 text-gray-600 rounded-lg text-[10px] font-bold hover:bg-gray-200 transition-colors"
+        >
+          쿼터 합계({totUs}:{totThem})를 총점에 반영
+        </button>
+      )}
+    </div>
+  );
+}
+
+// 지난(완료) 경기의 쿼터 결과를 나중에 채워 넣기 위한 편집기
+function PastQuarterEditor({ match }: { match: Match }) {
+  const [qs, setQs] = useState<QScore[]>(() =>
+    [1, 2, 3, 4].map(qn => {
+      const r = (match.quarterResults || []).find(x => x.quarter === qn);
+      return r ? { us: String(r.us), them: String(r.them) } : { us: '', them: '' };
+    })
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    const quarterResults = qs
+      .map((q, i) => ({ quarter: (i + 1) as 1 | 2 | 3 | 4, us: Number(q.us), them: Number(q.them), ok: q.us !== '' && q.them !== '' }))
+      .filter(q => q.ok && !isNaN(q.us) && !isNaN(q.them))
+      .map(({ quarter, us, them }) => ({ quarter, us, them }));
+    await updateMatch(match.id, { quarterResults });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const already = (match.quarterResults || []).length;
+
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      {already > 0 && (
+        <p className="text-[10px] text-blue-700 font-bold mb-1.5">
+          쿼터 결과 {already}개 저장됨 — 분석 정확도 반영 중
+        </p>
+      )}
+      <QuarterResultEditor value={qs} onChange={setQs} />
+      <button
+        onClick={save}
+        disabled={saving}
+        className="mt-2 w-full py-2 bg-[#1e3a5f] text-white rounded-lg text-xs font-bold hover:bg-[#16304a] disabled:bg-gray-300 transition-colors"
+      >
+        {saved ? '저장 완료' : '쿼터 결과 저장'}
+      </button>
     </div>
   );
 }

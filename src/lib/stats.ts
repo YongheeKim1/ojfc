@@ -28,15 +28,33 @@ function slotCoord(formation: string, slotId: string): { x: number; y: number } 
   return s ? { x: s.x, y: s.y } : null;
 }
 
-/** 두 슬롯의 연관 가중치 0~1. 세로(라인 간) 거리는 0.6배로 완화해 같은 측면 연결을 살림 */
+const VERT_SCALE = 0.8;  // 세로(라인 간) 거리 완화 계수 — 같은 측면 상하 연결 보존
+const LINK_RANGE = 48;   // 이 거리를 넘으면 연관도 0
+
+// 골키퍼는 수비 라인·홀딩 미드와만 연결. (윙어/공격수와의 "케미"는 실제로 의미 없음)
+const GK_LINKABLE = ['GK', 'CB', 'LB', 'RB', 'CDM'];
+
+function slotLabel(formation: string, slotId: string): string {
+  const slots = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
+  return slots.find(v => v.id === slotId)?.label || slotId;
+}
+
+/** 두 슬롯의 연관 가중치 0~1. 가까울수록 1, 멀면 0. */
 export function slotLinkWeight(formation: string, slotIdA: string, slotIdB: string): number {
   const a = slotCoord(formation, slotIdA);
   const b = slotCoord(formation, slotIdB);
   if (!a || !b) return 0;
+
+  // GK 예외 규칙: 수비 라인 밖과는 케미를 잡지 않음
+  const la = slotLabel(formation, slotIdA);
+  const lb = slotLabel(formation, slotIdB);
+  if (la === 'GK' && !GK_LINKABLE.includes(lb)) return 0;
+  if (lb === 'GK' && !GK_LINKABLE.includes(la)) return 0;
+
   const dx = a.x - b.x;
-  const dy = (a.y - b.y) * 0.6;
+  const dy = (a.y - b.y) * VERT_SCALE;
   const d = Math.sqrt(dx * dx + dy * dy);
-  return Math.max(0, 1 - d / 55);
+  return Math.max(0, 1 - d / LINK_RANGE);
 }
 
 export interface SlotStat {
