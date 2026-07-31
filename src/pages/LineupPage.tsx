@@ -1007,7 +1007,9 @@ export default function LineupPage() {
                     }`}
                   >
                     {info.positions.length > 0 ? (
-                      <PositionBadge position={info.positions[0]} />
+                      <span className="flex items-center gap-0.5">
+                        {info.positions.map((pos) => <PositionBadge key={pos} position={pos} />)}
+                      </span>
                     ) : (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">-</span>
                     )}
