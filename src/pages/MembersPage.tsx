@@ -10,7 +10,7 @@ import {
   isAdmin,
   getGuests,
 } from '../lib/store';
-import { computePlayerStats, playerName } from '../lib/stats';
+import { computePlayerStats, playerName, MIN_PAIR_SAMPLE } from '../lib/stats';
 import type { Member, Match, Position } from '../lib/types';
 import { POSITIONS, getPositionColor } from '../lib/types';
 
@@ -424,7 +424,10 @@ function AnalysisPanel({ memberId, matches, members }: { memberId: string; match
   }
 
   const pct = (r: number) => `${Math.round(r * 100)}%`;
-  const topPairs = stats.pairs.filter(p => p.played >= 2).slice(0, 3);
+  // 최소 5쿼터 같이 뛰고, 포지션상 연관 있는(가까운 자리) 페어만 케미로 인정
+  const topPairs = stats.pairs
+    .filter(p => p.played >= MIN_PAIR_SAMPLE && p.weightedPlayed >= 1)
+    .slice(0, 3);
   const bestSlot = stats.bySlot.slice().sort((a, b) => b.rate - a.rate)[0];
 
   return (
@@ -468,7 +471,8 @@ function AnalysisPanel({ memberId, matches, members }: { memberId: string; match
       {/* 잘 맞는 짝 */}
       {topPairs.length > 0 && (
         <div>
-          <p className="text-[10px] font-bold text-gray-600 mb-1.5">잘 맞는 짝</p>
+          <p className="text-[10px] font-bold text-gray-600 mb-0.5">잘 맞는 짝</p>
+          <p className="text-[9px] text-gray-400 mb-1.5">가까운 포지션에서 {MIN_PAIR_SAMPLE}쿼터 이상 함께 뛴 선수 기준</p>
           <div className="flex flex-wrap gap-1.5">
             {topPairs.map(p => (
               <span key={p.partnerId} className="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded-lg">

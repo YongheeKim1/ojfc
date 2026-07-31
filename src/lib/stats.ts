@@ -11,6 +11,30 @@ import { FORMATIONS } from './store';
 
 const PRIOR_W = 4; // 스무딩 강도 (가상 4경기를 5할로 친 셈)
 
+// 페어(케미) 판단 최소 표본: 같이 뛴 쿼터 5개 미만이면 "모름(중립)" 취급
+// 근거: Bransen & Van Haaren(2020) 등 실제 축구 케미 연구도 소표본 페어는 분산이 커서 제외함
+export const MIN_PAIR_SAMPLE = 5;
+
+// ── 포지션 연관도 (피치 좌표 거리 기반) ──
+// 같은 측면 풀백↔윙어, 투톱, 더블 볼란치처럼 "가까운 자리"끼리만 케미가 크게 반영되고,
+// 반대편 끝(LW↔RB)처럼 먼 자리는 0에 수렴합니다. (JDI의 존 기반 책임 개념의 단순화)
+function slotCoord(formation: string, slotId: string): { x: number; y: number } | null {
+  const slots = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
+  const s = slots.find(v => v.id === slotId);
+  return s ? { x: s.x, y: s.y } : null;
+}
+
+/** 두 슬롯의 연관 가중치 0~1. 세로(라인 간) 거리는 0.6배로 완화해 같은 측면 연결을 살림 */
+export function slotLinkWeight(formation: string, slotIdA: string, slotIdB: string): number {
+  const a = slotCoord(formation, slotIdA);
+  const b = slotCoord(formation, slotIdB);
+  if (!a || !b) return 0;
+  const dx = a.x - b.x;
+  const dy = (a.y - b.y) * 0.6;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  return Math.max(0, 1 - d / 55);
+}
+
 export interface SlotStat {
   label: string;   // 포지션 라벨 (ST, CB ...)
   played: number;
@@ -23,8 +47,9 @@ export interface SlotStat {
 
 export interface PairStat {
   partnerId: string;
-  played: number;
-  rate: number;    // 스무딩된 승점률
+  played: number;         // 같이 뛴 쿼터 수 (표본 판단)
+  weightedPlayed: number; // 포지션 연관도 가중 쿼터 수 (케미 유효 표본)
+  rate: number;           // 스무딩된 케미 승점률
   rawRate: number;
 }
 
@@ -54,16 +79,16 @@ function quarterPoint(m: Match, quarter: number): number | null {
   return 0.5;
 }
 
-// 매치의 쿼터에서 (playerId → 슬롯 라벨) 맵
-function quarterPlayerSlots(m: Match, quarterIdx: number): Map<string, string> {
-  const out = new Map<string, string>();
+// 매치의 쿼터에서 (playerId → {slotId, label}) 맵
+function quarterPlayerSlots(m: Match, quarterIdx: number): Map<string, { slotId: string; label: string }> {
+  const out = new Map<string, { slotId: string; label: string }>();
   const q = (m.quarters || [])[quarterIdx];
   if (!q) return out;
   const slots = FORMATIONS[m.formation] || FORMATIONS['4-2-3-1'];
   const labelById: Record<string, string> = {};
   slots.forEach(s => { labelById[s.id] = s.label; });
   for (const [slotId, pid] of Object.entries(q.playing || {})) {
-    if (pid) out.set(pid, labelById[slotId] || slotId);
+    if (pid) out.set(pid, { slotId, label: labelById[slotId] || slotId });
   }
   return out;
 }
@@ -76,7 +101,8 @@ export function hasQuarterResults(m: Match): boolean {
 /** 한 선수의 포지션별 승률 + 페어 시너지 */
 export function computePlayerStats(playerId: string, matches: Match[]): PlayerStats {
   const slotAgg = new Map<string, { played: number; win: number; draw: number; loss: number; pts: number }>();
-  const pairAgg = new Map<string, { played: number; pts: number }>();
+  // played: 같이 뛴 쿼터 수(표본 판단용) / wPlayed·wPts: 포지션 연관도 가중 합(케미 계산용)
+  const pairAgg = new Map<string, { played: number; wPlayed: number; wPts: number }>();
   let totalPlayed = 0, win = 0, draw = 0, loss = 0, totalPts = 0;
 
   for (const m of matches) {
@@ -85,23 +111,26 @@ export function computePlayerStats(playerId: string, matches: Match[]): PlayerSt
       const pt = quarterPoint(m, qi + 1);
       if (pt === null) continue;
       const slotMap = quarterPlayerSlots(m, qi);
-      const myLabel = slotMap.get(playerId);
-      if (!myLabel) continue; // 그 쿼터에 안 뛰었음
+      const mine = slotMap.get(playerId);
+      if (!mine) continue; // 그 쿼터에 안 뛰었음
 
       totalPlayed++;
       totalPts += pt;
       if (pt === 1) win++; else if (pt === 0) loss++; else draw++;
 
-      const s = slotAgg.get(myLabel) || { played: 0, win: 0, draw: 0, loss: 0, pts: 0 };
+      const s = slotAgg.get(mine.label) || { played: 0, win: 0, draw: 0, loss: 0, pts: 0 };
       s.played++; s.pts += pt;
       if (pt === 1) s.win++; else if (pt === 0) s.loss++; else s.draw++;
-      slotAgg.set(myLabel, s);
+      slotAgg.set(mine.label, s);
 
-      // 같은 쿼터에 함께 뛴 선수들
-      for (const otherId of slotMap.keys()) {
+      // 같은 쿼터에 함께 뛴 선수들 — 피치에서 가까운 자리일수록 케미 가중치↑
+      for (const [otherId, other] of slotMap.entries()) {
         if (otherId === playerId) continue;
-        const p = pairAgg.get(otherId) || { played: 0, pts: 0 };
-        p.played++; p.pts += pt;
+        const w = slotLinkWeight(m.formation, mine.slotId, other.slotId);
+        const p = pairAgg.get(otherId) || { played: 0, wPlayed: 0, wPts: 0 };
+        p.played++;
+        p.wPlayed += w;
+        p.wPts += w * pt;
         pairAgg.set(otherId, p);
       }
     }
@@ -120,8 +149,9 @@ export function computePlayerStats(playerId: string, matches: Match[]): PlayerSt
     .map(([partnerId, p]) => ({
       partnerId,
       played: p.played,
-      rate: smooth(p.pts, p.played),
-      rawRate: p.played ? p.pts / p.played : 0,
+      weightedPlayed: p.wPlayed,
+      rate: smooth(p.wPts, p.wPlayed),
+      rawRate: p.wPlayed ? p.wPts / p.wPlayed : 0,
     }))
     .sort((a, b) => b.rate - a.rate);
 
@@ -151,11 +181,12 @@ export function slotRate(stats: PlayerStats | undefined, label: string): number 
   return stats.overallRate;
 }
 
-/** 두 선수 시너지 (기록 없으면 중립 0.5) */
+/** 두 선수 시너지. 표본 5쿼터 미만이거나 기록 없으면 중립 0.5 (한 번 이겼다고 100%가 되지 않도록) */
 export function pairRate(stats: PlayerStats | undefined, partnerId: string): number {
   if (!stats) return 0.5;
   const p = stats.pairs.find(x => x.partnerId === partnerId);
-  return p ? p.rate : 0.5;
+  if (!p || p.played < MIN_PAIR_SAMPLE) return 0.5;
+  return p.rate;
 }
 
 /** 이름 조회 헬퍼 (멤버 + 용병) */

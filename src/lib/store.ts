@@ -4,7 +4,7 @@ import {
   query, orderBy
 } from 'firebase/firestore';
 import { Member, Guest, Match, Position, Announcement, Feedback } from './types';
-import { computeAllStats, slotRate, pairRate } from './stats';
+import { computeAllStats, slotRate, pairRate, slotLinkWeight } from './stats';
 
 // ──────────────────────────────────────────
 // 로컬 캐시 (동기 접근용) + Firestore 동기화
@@ -575,16 +575,22 @@ export function autoAssignLineupSmart(
     const cands = (eligible.get(slot.id) || []).filter(c => !used.has(c.id));
     if (cands.length === 0) continue;
 
-    const placed = Object.values(assignment);
     let best = cands[0];
     let bestScore = -Infinity;
 
     for (const c of cands) {
       const st = statsMap.get(c.id);
       const posScore = slotRate(st, slot.label);
-      const synergy = placed.length
-        ? placed.reduce((sum, pid) => sum + pairRate(st, pid), 0) / placed.length
-        : 0.5;
+      // 시너지: 이미 배치된 선수들과의 케미를 "피치상 거리"로 가중 평균
+      // (윙어는 같은 측면 풀백·공격수와의 케미가 크게, 반대편 수비수는 거의 0으로 반영)
+      let wSum = 0, sSum = 0;
+      for (const [placedSlotId, pid] of Object.entries(assignment)) {
+        const w = slotLinkWeight(formation, slot.id, placedSlotId);
+        if (w <= 0) continue;
+        sSum += w * pairRate(st, pid);
+        wSum += w;
+      }
+      const synergy = wSum > 0 ? sSum / wSum : 0.5;
       // 자리 적합도 위주 + 시너지 보조 + 선호 포지션 정확 일치 보너스
       const score = posScore * 0.6 + synergy * 0.25 + (c.exact ? 0.15 : 0);
       if (score > bestScore) { bestScore = score; best = c; }
