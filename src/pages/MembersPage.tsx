@@ -10,7 +10,7 @@ import {
   isAdmin,
   getGuests,
 } from '../lib/store';
-import { computePlayerStats, playerName, MIN_PAIR_SAMPLE } from '../lib/stats';
+import { computePlayerStats, playerName, MIN_PAIR_SAMPLE, isPairReliable } from '../lib/stats';
 import type { Member, Match, Position } from '../lib/types';
 import { POSITIONS, getPositionColor } from '../lib/types';
 
@@ -416,22 +416,30 @@ function AnalysisPanel({ memberId, matches, members }: { memberId: string; match
     return (
       <div className="px-5 pb-4 bg-gray-50/70">
         <p className="text-[11px] text-gray-400 py-3 text-center">
-          쿼터별 결과가 입력된 경기가 없습니다.<br />
-          매치 결과 입력 시 쿼터 점수를 넣으면 분석이 시작됩니다.
+          분석할 경기 기록이 없습니다.<br />
+          매치 결과(점수)를 입력하면 분석이 시작됩니다.
         </p>
       </div>
     );
   }
 
+  const isApprox = stats.exactQuarters === 0;
+
   const pct = (r: number) => `${Math.round(r * 100)}%`;
-  // 최소 5쿼터 같이 뛰고, 포지션상 연관 있는(가까운 자리) 페어만 케미로 인정
-  const topPairs = stats.pairs
-    .filter(p => p.played >= MIN_PAIR_SAMPLE && p.weightedPlayed >= 1)
-    .slice(0, 3);
+  // 최소 표본 + 포지션 연관도를 만족하는 페어만 케미로 인정
+  const topPairs = stats.pairs.filter(isPairReliable).slice(0, 3);
   const bestSlot = stats.bySlot.slice().sort((a, b) => b.rate - a.rate)[0];
 
   return (
     <div className="px-5 pb-4 pt-1 bg-gray-50/70 space-y-3">
+      {/* 데이터 출처 안내 */}
+      {isApprox && (
+        <p className="text-[9px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+          쿼터별 결과가 없어 <b>매치 최종 결과를 각 쿼터에 적용한 추정치</b>입니다.
+          쿼터 점수를 입력하면 정확도가 올라갑니다.
+        </p>
+      )}
+
       {/* 요약 */}
       <div className="flex items-center gap-3">
         <div className="flex-1 bg-white rounded-xl p-2.5 text-center">
@@ -472,7 +480,7 @@ function AnalysisPanel({ memberId, matches, members }: { memberId: string; match
       {topPairs.length > 0 && (
         <div>
           <p className="text-[10px] font-bold text-gray-600 mb-0.5">잘 맞는 짝</p>
-          <p className="text-[9px] text-gray-400 mb-1.5">가까운 포지션에서 {MIN_PAIR_SAMPLE}쿼터 이상 함께 뛴 선수 기준</p>
+          <p className="text-[9px] text-gray-400 mb-1.5">가까운 포지션에서 {MIN_PAIR_SAMPLE}쿼터 이상 함께 뛴 선수만</p>
           <div className="flex flex-wrap gap-1.5">
             {topPairs.map(p => (
               <span key={p.partnerId} className="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded-lg">
