@@ -146,11 +146,14 @@ async function sendPush(messaging, tokens, msg) {
   return { sent, invalid };
 }
 
-async function main() {
-  initAdmin();
-  const db = admin.firestore();
-  const messaging = admin.messaging();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 한 번의 점검 사이클.
+ * GitHub Actions 스케줄러는 실행 시각이 들쭉날쭉해서(5~30분 지연),
+ * 한 번 실행될 때 여러 번 반복 점검해 "구간"을 커버하도록 합니다.
+ */
+async function runCycle(db, messaging) {
   const stateRef = db.collection('pushState').doc('global');
   const stateSnap = await stateRef.get();
   const isFirstRun = !stateSnap.exists;
@@ -246,7 +249,25 @@ async function main() {
     console.log('최초 실행 baseline 완료 (알림 미전송).');
   }
 
-  console.log('완료.');
+  // 사이클 종료
+}
+
+async function main() {
+  initAdmin();
+  const db = admin.firestore();
+  const messaging = admin.messaging();
+
+  // 한 번 실행될 때 여러 번 점검해서 커버 구간을 넓힙니다.
+  // (GitHub 스케줄러 지연 때문에 "방금 놓친" 경우를 줄이는 목적)
+  const rounds = Math.max(1, Number(process.env.POLL_ROUNDS || 1));
+  const intervalSec = Math.max(10, Number(process.env.POLL_INTERVAL_SEC || 50));
+
+  for (let i = 0; i < rounds; i++) {
+    if (i > 0) await sleep(intervalSec * 1000);
+    console.log(`--- 점검 ${i + 1}/${rounds} ---`);
+    await runCycle(db, messaging);
+  }
+  console.log('전체 완료.');
 }
 
 main().catch((e) => {

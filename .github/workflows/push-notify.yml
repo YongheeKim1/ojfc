@@ -30,4 +30,9 @@ jobs:
         working-directory: scripts/push-notifier
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # 한 번 실행될 때 6회 × 50초 ≈ 5분간 반복 점검.
+          # GitHub 스케줄러가 늦게 깨워도 실행 자체가 구간을 덮어
+          # "방금 올렸는데 다음 실행까지 기다림"이 줄어듭니다.
+          POLL_ROUNDS: '6'
+          POLL_INTERVAL_SEC: '50'
         run: node notify.mjs
