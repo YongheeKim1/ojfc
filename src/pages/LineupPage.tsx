@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   Users,
@@ -29,6 +29,7 @@ import {
 } from '../lib/store';
 import type { FormationSlot } from '../lib/store';
 import type { Position, QuarterLineup } from '../lib/types';
+import { labelFromCoord } from '../lib/stats';
 import { getPositionColor } from '../lib/types';
 
 // ─── Position Badge ───
@@ -48,17 +49,78 @@ function FootballPitch({
   formation,
   selectedPlayerId,
   onPlayerTap,
+  slotPos,
+  onSlotMove,
+  draggable = false,
 }: {
   lineup: Record<string, string>;
   formation: string;
   selectedPlayerId: string | null;
   onPlayerTap?: (slotId: string, playerId: string | null) => void;
+  slotPos?: Record<string, { x: number; y: number }>;
+  onSlotMove?: (slotId: string, x: number, y: number) => void;
+  draggable?: boolean;
 }) {
   const slots: FormationSlot[] = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
+  const pitchRef = useRef<HTMLDivElement>(null);
+  // 드래그 중 실시간 좌표 (놓는 순간 onSlotMove로 확정)
+  const [dragging, setDragging] = useState<{ slotId: string; x: number; y: number } | null>(null);
+  const dragInfo = useRef<{ slotId: string; moved: boolean; sx: number; sy: number } | null>(null);
+  const DRAG_THRESHOLD = 8; // px — 이 이상 움직여야 드래그로 인정 (탭 오인 방지)
+
+  // 슬롯의 현재 좌표 (드래그 중 > 저장된 커스텀 > 포메이션 기본)
+  const posOf = (slot: FormationSlot) => {
+    if (dragging && dragging.slotId === slot.id) return { x: dragging.x, y: dragging.y };
+    const c = slotPos?.[slot.id];
+    return c ? { x: c.x, y: c.y } : { x: slot.x, y: slot.y };
+  };
+
+  const toPitchCoord = (clientX: number, clientY: number) => {
+    const r = pitchRef.current?.getBoundingClientRect();
+    if (!r) return null;
+    const x = Math.max(4, Math.min(96, ((clientX - r.left) / r.width) * 100));
+    const y = Math.max(4, Math.min(96, ((clientY - r.top) / r.height) * 100));
+    return { x, y };
+  };
+
+  const handlePointerDown = (e: React.PointerEvent, slotId: string, playerId: string | null) => {
+    if (!draggable || !playerId) return;
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragInfo.current = { slotId, moved: false, sx: e.clientX, sy: e.clientY };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const info = dragInfo.current;
+    if (!info) return;
+    // 임계값을 넘기 전에는 탭으로 간주 (미세 떨림 무시)
+    if (!info.moved) {
+      const dist = Math.hypot(e.clientX - info.sx, e.clientY - info.sy);
+      if (dist < DRAG_THRESHOLD) return;
+      info.moved = true;
+    }
+    const c = toPitchCoord(e.clientX, e.clientY);
+    if (!c) return;
+    setDragging({ slotId: info.slotId, ...c });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent, slotId: string, playerId: string | null) => {
+    const info = dragInfo.current;
+    dragInfo.current = null;
+    if (info?.moved && dragging && onSlotMove) {
+      onSlotMove(slotId, dragging.x, dragging.y);
+      setDragging(null);
+      return;
+    }
+    setDragging(null);
+    // 움직이지 않았으면 기존 탭(교체) 동작
+    if (onPlayerTap) onPlayerTap(slotId, playerId || null);
+    e.preventDefault();
+  };
 
   return (
     <div className="w-full">
       <div
+        ref={pitchRef}
         className="relative w-full overflow-hidden rounded-xl"
         style={{
           aspectRatio: '3 / 4',
@@ -173,13 +235,29 @@ function FootballPitch({
           const isEmpty = !playerId;
           const isSelected = playerId != null && playerId === selectedPlayerId;
           const isEmptyHighlight = isEmpty && selectedPlayerId != null;
+          const pos = posOf(slot);
+          const isDragging = dragging?.slotId === slot.id;
+          // 자유 이동된 위치면 좌표로 포지션 라벨 재판정
+          const moved = isDragging || !!slotPos?.[slot.id];
+          const label = moved ? labelFromCoord(pos.x, pos.y) : slot.label;
 
           return (
             <button
               key={slot.id}
               className="absolute flex flex-col items-center -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${slot.x}%`, top: `${slot.y}%` }}
-              onClick={() => {
+              style={{
+                left: `${pos.x}%`,
+                top: `${pos.y}%`,
+                touchAction: draggable ? 'none' : undefined,
+                zIndex: isDragging ? 30 : undefined,
+                transition: isDragging ? 'none' : 'left .15s, top .15s',
+              }}
+              onPointerDown={(e) => handlePointerDown(e, slot.id, playerId || null)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={(e) => handlePointerUp(e, slot.id, playerId || null)}
+              onClick={(e) => {
+                // 드래그 지원 시에는 pointerup에서 처리하므로 클릭 중복 방지
+                if (draggable) { e.preventDefault(); return; }
                 if (onPlayerTap) onPlayerTap(slot.id, playerId || null);
               }}
             >
@@ -207,7 +285,7 @@ function FootballPitch({
                       : '0 3px 10px rgba(0,0,0,0.35)',
                 }}
               >
-                <span className={`text-[10px] font-extrabold ${isEmpty ? 'text-white/70' : 'text-gray-700'}`}>{slot.label}</span>
+                <span className={`text-[10px] font-extrabold ${isEmpty ? 'text-white/70' : 'text-gray-700'}`}>{label}</span>
               </div>
               {/* Name pill */}
               <div
@@ -324,7 +402,7 @@ export default function LineupPage() {
     }
     return ids;
   });
-  const [quarters, setQuarters] = useState<{ playing: Record<string, string>; resting: string[] }[]>(
+  const [quarters, setQuarters] = useState<{ playing: Record<string, string>; resting: string[]; slotPos?: Record<string, { x: number; y: number }> }[]>(
     match?.quarters?.map((q) => ({ playing: q.playing || {}, resting: q.resting || [] })) ?? []
   );
   const [activeQuarter, setActiveQuarter] = useState(0);
@@ -540,6 +618,44 @@ export default function LineupPage() {
     },
     [matchId, activeQuarter, quarters, swapSelectedId, admin]
   );
+
+  // 전술판 자유 이동: 슬롯 좌표 저장 (포지션은 좌표에서 자동 판정됨)
+  const handleSlotMove = useCallback(async (slotId: string, x: number, y: number) => {
+    if (!matchId || !admin) return;
+    const qi = activeQuarter;
+    const q = quarters[qi];
+    if (!q) return;
+    const newQuarters = [...quarters];
+    newQuarters[qi] = {
+      ...q,
+      slotPos: { ...(q.slotPos || {}), [slotId]: { x, y } },
+    };
+    setQuarters(newQuarters);
+    const quarterLineups: QuarterLineup[] = newQuarters.map((qr, i) => ({
+      quarter: (i + 1) as 1 | 2 | 3 | 4,
+      playing: qr.playing,
+      resting: qr.resting,
+      ...(qr.slotPos ? { slotPos: qr.slotPos } : {}),
+    }));
+    await updateMatch(matchId, { quarters: quarterLineups });
+  }, [matchId, admin, activeQuarter, quarters]);
+
+  // 전술판 위치 초기화 (포메이션 기본 배치로)
+  const handleResetPositions = useCallback(async () => {
+    if (!matchId || !admin) return;
+    const newQuarters = quarters.map(q => {
+      const { slotPos, ...rest } = q as typeof q & { slotPos?: Record<string, { x: number; y: number }> };
+      void slotPos;
+      return rest;
+    });
+    setQuarters(newQuarters as typeof quarters);
+    const quarterLineups: QuarterLineup[] = newQuarters.map((qr, i) => ({
+      quarter: (i + 1) as 1 | 2 | 3 | 4,
+      playing: qr.playing,
+      resting: qr.resting,
+    }));
+    await updateMatch(matchId, { quarters: quarterLineups });
+  }, [matchId, admin, quarters]);
 
   const handleEndMatch = async () => {
     if (!matchId || !admin) return;
@@ -977,6 +1093,9 @@ export default function LineupPage() {
                 handleEmptySlotTap(slotId);
               }
             }}
+            slotPos={currentQ.slotPos}
+            draggable={admin}
+            onSlotMove={handleSlotMove}
           />
         )}
       </div>
@@ -1102,9 +1221,16 @@ export default function LineupPage() {
               다시 섞기
             </button>
 
-            <p className="text-center text-[10px] text-gray-400">
-              💡 선수를 탭하고 다른 선수를 탭하면 자유롭게 교체됩니다
+            <p className="text-center text-[10px] text-gray-400 leading-relaxed">
+              선수를 <b>끌어서</b> 원하는 위치로 옮기면 포지션이 자동으로 바뀝니다<br />
+              탭 2번은 기존처럼 선수끼리 교체됩니다
             </p>
+            <button
+              onClick={handleResetPositions}
+              className="w-full flex items-center justify-center gap-2 py-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              포메이션 기본 위치로 되돌리기
+            </button>
             <button
               onClick={handleBackToSelect}
               className="w-full flex items-center justify-center gap-2 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"

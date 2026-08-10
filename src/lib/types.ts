@@ -92,6 +92,8 @@ export interface QuarterLineup {
   quarter: 1 | 2 | 3 | 4;
   playing: Record<string, string>; // positionSlot -> memberId or guestId (11명)
   resting: string[]; // 휴식 멤버/용병 IDs
+  // 전술판에서 자유 이동한 슬롯의 좌표 (%). 없으면 포메이션 기본 좌표 사용.
+  slotPos?: Record<string, { x: number; y: number }>;
 }
 
 export interface GoalRecord {

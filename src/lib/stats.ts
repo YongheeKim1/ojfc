@@ -31,6 +31,33 @@ function slotCoord(formation: string, slotId: string): { x: number; y: number } 
 const VERT_SCALE = 0.8;  // 세로(라인 간) 거리 완화 계수 — 같은 측면 상하 연결 보존
 const LINK_RANGE = 48;   // 이 거리를 넘으면 연관도 0
 
+/**
+ * 피치 좌표 → 포지션 라벨 자동 판정.
+ * 전술판에서 선수를 끌어다 놓으면 놓인 위치에 따라 포지션이 바뀝니다.
+ * y: 0(상대 골문/공격) ~ 100(우리 골문/수비), x: 0(왼쪽) ~ 100(오른쪽)
+ */
+export function labelFromCoord(x: number, y: number): string {
+  if (y >= 85) return 'GK';
+  if (y >= 65) return x < 28 ? 'LB' : x > 72 ? 'RB' : 'CB';   // 수비 라인
+  if (y >= 54) return x < 25 ? 'LM' : x > 75 ? 'RM' : 'CDM';  // 수비형 미드
+  if (y >= 44) return x < 25 ? 'LM' : x > 75 ? 'RM' : 'CM';   // 중앙 미드
+  if (y >= 32) return x < 28 ? 'LW' : x > 72 ? 'RW' : 'CAM';  // 공격형 미드
+  return x < 28 ? 'LW' : x > 72 ? 'RW' : 'ST';                // 최전방
+}
+
+/** 두 좌표의 연관 가중치 (케미 계산용). GK는 수비 라인하고만 연결. */
+export function coordLinkWeight(
+  a: { x: number; y: number; label: string },
+  b: { x: number; y: number; label: string }
+): number {
+  if (a.label === 'GK' && !GK_LINKABLE.includes(b.label)) return 0;
+  if (b.label === 'GK' && !GK_LINKABLE.includes(a.label)) return 0;
+  const dx = a.x - b.x;
+  const dy = (a.y - b.y) * VERT_SCALE;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  return Math.max(0, 1 - d / LINK_RANGE);
+}
+
 // 골키퍼는 수비 라인·홀딩 미드와만 연결. (윙어/공격수와의 "케미"는 실제로 의미 없음)
 const GK_LINKABLE = ['GK', 'CB', 'LB', 'RB', 'CDM'];
 
@@ -125,16 +152,31 @@ function quarterPoint(m: Match, quarter: number): { pt: number; w: number } | nu
   return null;
 }
 
-// 매치의 쿼터에서 (playerId → {slotId, label}) 맵
-function quarterPlayerSlots(m: Match, quarterIdx: number): Map<string, { slotId: string; label: string }> {
-  const out = new Map<string, { slotId: string; label: string }>();
+// 매치의 쿼터에서 (playerId → {slotId, label, x, y}) 맵
+// 전술판에서 자유 이동한 슬롯은 그 좌표로 포지션을 다시 판정합니다.
+function quarterPlayerSlots(
+  m: Match,
+  quarterIdx: number
+): Map<string, { slotId: string; label: string; x: number; y: number }> {
+  const out = new Map<string, { slotId: string; label: string; x: number; y: number }>();
   const q = (m.quarters || [])[quarterIdx];
   if (!q) return out;
   const slots = FORMATIONS[m.formation] || FORMATIONS['4-2-3-1'];
-  const labelById: Record<string, string> = {};
-  slots.forEach(s => { labelById[s.id] = s.label; });
+  const byId: Record<string, { x: number; y: number; label: string }> = {};
+  slots.forEach(s => { byId[s.id] = { x: s.x, y: s.y, label: s.label }; });
+
   for (const [slotId, pid] of Object.entries(q.playing || {})) {
-    if (pid) out.set(pid, { slotId, label: labelById[slotId] || slotId });
+    if (!pid) continue;
+    const custom = q.slotPos?.[slotId];
+    const base = byId[slotId];
+    if (custom) {
+      // 자유 이동된 위치 → 좌표로 포지션 재판정
+      out.set(pid, { slotId, label: labelFromCoord(custom.x, custom.y), x: custom.x, y: custom.y });
+    } else if (base) {
+      out.set(pid, { slotId, label: base.label, x: base.x, y: base.y });
+    } else {
+      out.set(pid, { slotId, label: slotId, x: 50, y: 50 });
+    }
   }
   return out;
 }
@@ -182,7 +224,7 @@ export function computePlayerStats(playerId: string, matches: Match[]): PlayerSt
       // 같은 쿼터에 함께 뛴 선수들 — 피치에서 가까운 자리일수록 케미 가중치↑
       for (const [otherId, other] of slotMap.entries()) {
         if (otherId === playerId) continue;
-        const link = slotLinkWeight(m.formation, mine.slotId, other.slotId);
+        const link = coordLinkWeight(mine, other); // 실제 배치 좌표 기준
         const ww = link * w; // 포지션 연관도 × 표본 신뢰도
         const p = pairAgg.get(otherId) || { played: 0, wPlayed: 0, wPts: 0 };
         p.played++;
