@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Megaphone, Mail, Send, Trash2, User } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Megaphone, Mail, Send, Trash2, User, Clapperboard, ChevronRight } from 'lucide-react';
 import {
   getAnnouncements, saveAnnouncement, deleteAnnouncement,
   getFeedbacks, getFeedbacksForMember, saveFeedback, deleteFeedback,
@@ -133,6 +134,21 @@ export default function CoachPage() {
       </div>
 
       <div className="px-4 -mt-4 space-y-5">
+        {/* 전술 보드 바로가기 (모두) */}
+        <Link
+          to="/tactics"
+          className="flex items-center gap-3 bg-white rounded-2xl shadow-sm p-4 active:bg-gray-50 transition-colors"
+        >
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <Clapperboard size={19} />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-gray-800">전술 보드</p>
+            <p className="text-[11px] text-gray-400">장면(컷)으로 만드는 팀 전술 · 재생으로 움직임 확인</p>
+          </div>
+          <ChevronRight size={16} className="text-gray-300" />
+        </Link>
+
         {/* ── 감독 전용: 작성 ── */}
         {coach && (
           <>

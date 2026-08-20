@@ -99,19 +99,13 @@ function getRangeBounds(key: RangeKey): { start?: number; end?: number } {
   return { start, end };
 }
 
-// 현재 달 기본값
-function getCurrentMonthKey(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
 export default function MembersPage() {
   const admin = isAdmin();
   const [members, setMembers] = useState<Member[]>(getMembers());
   const [matches, setMatchesState] = useState<Match[]>(getMatches());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeKey>(getCurrentMonthKey());
+  const [range, setRange] = useState<RangeKey>('all');
   const [analysisId, setAnalysisId] = useState<string | null>(null);
 
   const [name, setName] = useState('');

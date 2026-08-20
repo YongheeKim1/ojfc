@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone } from 'lucide-react';
+import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone, User as UserIcon } from 'lucide-react';
 import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe, getAnnouncements, getFeedbacks } from './lib/store';
 import { showNotification } from './lib/notifications';
 import type { Member, Match } from './lib/types';
@@ -12,6 +12,8 @@ import MatchResultPage from './pages/MatchResultPage';
 import GuestsPage from './pages/GuestsPage';
 import AttendPage from './pages/AttendPage';
 import CoachPage from './pages/CoachPage';
+import MyPage from './pages/MyPage';
+import TacticsPage from './pages/TacticsPage';
 import InstallBanner from './components/InstallBanner';
 
 const tabs = [
@@ -244,6 +246,13 @@ export default function App() {
               />
               <div className="absolute right-0 top-full mt-1 bg-white rounded-xl border border-gray-200 shadow-lg z-50 w-36 overflow-hidden">
                 <button
+                  onClick={() => { setShowLogoutMenu(false); navigate('/me'); }}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 font-medium hover:bg-gray-50 transition-colors border-b border-gray-100"
+                >
+                  <UserIcon size={16} />
+                  내 페이지
+                </button>
+                <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 font-medium hover:bg-red-50 transition-colors"
                 >
@@ -264,6 +273,8 @@ export default function App() {
           <Route path="/match" element={<MatchResultPage />} />
           <Route path="/guests" element={<GuestsPage />} />
           <Route path="/coach" element={<CoachPage />} />
+          <Route path="/me" element={<MyPage />} />
+          <Route path="/tactics" element={<TacticsPage />} />
           <Route path="/attend" element={<AttendPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

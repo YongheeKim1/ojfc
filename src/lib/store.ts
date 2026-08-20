@@ -3,7 +3,7 @@ import {
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   query, orderBy
 } from 'firebase/firestore';
-import { Member, Guest, Match, Position, Announcement, Feedback } from './types';
+import { Member, Guest, Match, Position, Announcement, Feedback, Tactic } from './types';
 import { computeAllStats, slotRate, pairRate, slotLinkWeight } from './stats';
 
 // ──────────────────────────────────────────
@@ -15,6 +15,7 @@ let guestsCache: Guest[] = [];
 let matchesCache: Match[] = [];
 let announcementsCache: Announcement[] = [];
 let feedbacksCache: Feedback[] = [];
+let tacticsCache: Tactic[] = [];
 let initialized = false;
 
 type Listener = () => void;
@@ -66,6 +67,13 @@ export function initFirestore() {
   const fbRef = collection(db, 'feedbacks');
   onSnapshot(query(fbRef, orderBy('createdAt', 'desc')), (snap) => {
     feedbacksCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Feedback));
+    notify();
+  });
+
+  // Tactics (전술 보드)
+  const tcRef = collection(db, 'tactics');
+  onSnapshot(query(tcRef, orderBy('updatedAt', 'desc')), (snap) => {
+    tacticsCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Tactic));
     notify();
   });
 }
@@ -213,6 +221,31 @@ export async function saveFeedback(
 export async function deleteFeedback(id: string): Promise<void> {
   if (!isCoach()) return;
   await safeWrite(() => deleteDoc(doc(db, 'feedbacks', id)));
+}
+
+// ──────────────────────────────────────────
+// 전술 보드 (tactics) — 열람 전체, 작성/수정/삭제는 감독만
+// ──────────────────────────────────────────
+export function getTactics(): Tactic[] {
+  return tacticsCache;
+}
+
+export async function saveTactic(t: Omit<Tactic, 'id' | 'createdAt' | 'updatedAt'>): Promise<Tactic | null> {
+  if (!isCoach()) return null;
+  const now = Date.now();
+  const tactic: Tactic = { ...t, id: genId(), createdAt: now, updatedAt: now };
+  await safeWrite(() => setDoc(doc(db, 'tactics', tactic.id), tactic));
+  return tactic;
+}
+
+export async function updateTactic(id: string, updates: Partial<Tactic>) {
+  if (!isCoach()) return;
+  await safeWrite(() => updateDoc(doc(db, 'tactics', id), { ...updates, updatedAt: Date.now() } as unknown as Record<string, never>));
+}
+
+export async function deleteTactic(id: string) {
+  if (!isCoach()) return;
+  await safeWrite(() => deleteDoc(doc(db, 'tactics', id)));
 }
 
 // ──────────────────────────────────────────

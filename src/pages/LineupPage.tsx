@@ -65,7 +65,7 @@ function FootballPitch({
   const pitchRef = useRef<HTMLDivElement>(null);
   // 드래그 중 실시간 좌표 (놓는 순간 onSlotMove로 확정)
   const [dragging, setDragging] = useState<{ slotId: string; x: number; y: number } | null>(null);
-  const dragInfo = useRef<{ slotId: string; moved: boolean; sx: number; sy: number } | null>(null);
+  const dragInfo = useRef<{ slotId: string; moved: boolean; sx: number; sy: number; last?: { x: number; y: number } } | null>(null);
   const DRAG_THRESHOLD = 8; // px — 이 이상 움직여야 드래그로 인정 (탭 오인 방지)
 
   // 슬롯의 현재 좌표 (드래그 중 > 저장된 커스텀 > 포메이션 기본)
@@ -85,7 +85,7 @@ function FootballPitch({
 
   const handlePointerDown = (e: React.PointerEvent, slotId: string, playerId: string | null) => {
     if (!draggable || !playerId) return;
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* 합성 이벤트 등 */ }
     dragInfo.current = { slotId, moved: false, sx: e.clientX, sy: e.clientY };
   };
 
@@ -100,14 +100,15 @@ function FootballPitch({
     }
     const c = toPitchCoord(e.clientX, e.clientY);
     if (!c) return;
+    info.last = c; // up()에서 state 대신 사용 (state는 같은 프레임에 아직 미반영일 수 있음)
     setDragging({ slotId: info.slotId, ...c });
   };
 
   const handlePointerUp = (e: React.PointerEvent, slotId: string, playerId: string | null) => {
     const info = dragInfo.current;
     dragInfo.current = null;
-    if (info?.moved && dragging && onSlotMove) {
-      onSlotMove(slotId, dragging.x, dragging.y);
+    if (info?.moved && info.last && onSlotMove) {
+      onSlotMove(slotId, info.last.x, info.last.y);
       setDragging(null);
       return;
     }
@@ -413,7 +414,7 @@ export default function LineupPage() {
 
     // quarters가 DB에 있으면 로컬에 반영
     if (match.quarters?.length > 0) {
-      setQuarters(match.quarters.map(q => ({ playing: q.playing || {}, resting: q.resting || [] })));
+      setQuarters(match.quarters.map(q => ({ playing: q.playing || {}, resting: q.resting || [], ...(q.slotPos ? { slotPos: q.slotPos } : {}) })));
       setStep('lineup');
       setFormation(match.formation || '4-2-3-1');
 
@@ -546,7 +547,7 @@ export default function LineupPage() {
       // Both resting: swap in resting array (order swap, mostly no-op visually)
 
       const newQuarters = [...quarters];
-      newQuarters[qi] = { playing: newPlaying, resting: newResting };
+      newQuarters[qi] = { ...quarters[qi], playing: newPlaying, resting: newResting };
       setQuarters(newQuarters);
 
       // Persist
@@ -554,6 +555,7 @@ export default function LineupPage() {
         quarter: (i + 1) as 1 | 2 | 3 | 4,
         playing: qr.playing,
         resting: qr.resting,
+        ...(qr.slotPos ? { slotPos: qr.slotPos } : {}),
       }));
       await updateMatch(matchId, { quarters: quarterLineups });
     },
@@ -605,7 +607,7 @@ export default function LineupPage() {
       }
 
       const newQuarters = [...quarters];
-      newQuarters[qi] = { playing: newPlaying, resting: newResting };
+      newQuarters[qi] = { ...quarters[qi], playing: newPlaying, resting: newResting };
       setQuarters(newQuarters);
       setSwapSelectedId(null);
 
@@ -613,6 +615,7 @@ export default function LineupPage() {
         quarter: (i + 1) as 1 | 2 | 3 | 4,
         playing: qr.playing,
         resting: qr.resting,
+        ...(qr.slotPos ? { slotPos: qr.slotPos } : {}),
       }));
       await updateMatch(matchId, { quarters: quarterLineups });
     },

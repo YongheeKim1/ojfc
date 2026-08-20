@@ -42,6 +42,34 @@ export interface Member {
   createdAt: number;
 }
 
+// 전술 보드: 컷(장면)들의 연속. 재생 시 컷 사이를 애니메이션으로 이동.
+export interface TacticMarker {
+  id: string;
+  label: string;          // 마커에 표시할 글자 (GK, LCB, 공 ...)
+  x: number;              // 0~100 (%)
+  y: number;
+  kind?: 'player' | 'ball';
+}
+
+export interface TacticArrow {
+  x1: number; y1: number; x2: number; y2: number; // 0~100 (%)
+}
+
+export interface TacticCut {
+  markers: TacticMarker[];
+  arrows: TacticArrow[];
+  note: string;           // 컷 설명 (시청자가 읽을 짧은 글)
+}
+
+export interface Tactic {
+  id: string;
+  title: string;
+  cuts: TacticCut[];
+  authorName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // 감독의 전체 공지
 export interface Announcement {
   id: string;
