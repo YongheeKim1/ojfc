@@ -46,9 +46,10 @@ export interface Member {
 export interface TacticMarker {
   id: string;
   label: string;          // 마커에 표시할 글자 (GK, LCB, 공 ...)
-  x: number;              // 0~100 (%)
+  x: number;              // 시작 위치 0~100 (%)
   y: number;
   kind?: 'player' | 'ball';
+  to?: { x: number; y: number }; // 이 장면에서의 이동 목표 (재생 시 여기로 움직임)
 }
 
 export interface TacticArrow {

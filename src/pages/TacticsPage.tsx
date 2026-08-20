@@ -2,12 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Clapperboard, Plus, Play, Square, Share2, Trash2, ChevronLeft,
-  MousePointer2, MoveUpRight, Undo2, Copy, X,
+  Hand, MoveUpRight, Eraser, ArrowRightToLine,
 } from 'lucide-react';
 import { getTactics, saveTactic, updateTactic, deleteTactic, getCurrentUser, subscribe, isCoach } from '../lib/store';
-import type { Tactic, TacticCut, TacticMarker, TacticArrow } from '../lib/types';
+import type { Tactic, TacticCut, TacticMarker } from '../lib/types';
 
-// 기본 컷: 4-2-3-1 배치 + 공
+// 기본 장면: 4-2-3-1 배치 + 공
 function defaultCut(): TacticCut {
   const P = (id: string, label: string, x: number, y: number): TacticMarker => ({ id, label, x, y, kind: 'player' });
   return {
@@ -28,22 +28,30 @@ function fmtDate(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-// ─── 전술 피치 (마커 드래그 + 화살표 그리기) ───
+const MOVE_MS = 1300; // 한 장면의 이동 애니메이션 시간
+
+// ─── 전술 피치 ───
+// mode 'place': 마커를 끌어 시작 위치 배치
+// mode 'move' : 마커에서 끌어 이동 목표 지정 (짧게 탭하면 그 마커의 이동 삭제)
 function TacticsPitch({
-  cut, editable, mode, playing,
-  onMarkerMove, onArrowAdd,
+  cut, editable, mode, animating,
+  onPlace, onSetMove, onClearMove,
 }: {
   cut: TacticCut;
   editable: boolean;
-  mode: 'move' | 'arrow';
-  playing: boolean;
-  onMarkerMove?: (markerId: string, x: number, y: number) => void;
-  onArrowAdd?: (a: TacticArrow) => void;
+  mode: 'place' | 'move';
+  animating: boolean; // true면 마커가 to 위치로 이동 중
+  onPlace?: (markerId: string, x: number, y: number) => void;
+  onSetMove?: (markerId: string, x: number, y: number) => void;
+  onClearMove?: (markerId: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragM, setDragM] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [dragA, setDragA] = useState<TacticArrow | null>(null);
-  const info = useRef<{ kind: 'marker' | 'arrow'; id?: string; moved: boolean; sx: number; sy: number; start?: { x: number; y: number }; last?: { x: number; y: number } } | null>(null);
+  const [preview, setPreview] = useState<{ id: string; x: number; y: number } | null>(null); // 이동 지정 미리보기
+  const info = useRef<{
+    kind: 'place' | 'move'; id: string; moved: boolean;
+    sx: number; sy: number; last?: { x: number; y: number };
+  } | null>(null);
 
   const toCoord = (cx: number, cy: number) => {
     const r = ref.current?.getBoundingClientRect();
@@ -54,20 +62,11 @@ function TacticsPitch({
     };
   };
 
-  const downMarker = (e: React.PointerEvent, id: string) => {
-    if (!editable || mode !== 'move') return;
+  const down = (e: React.PointerEvent, id: string) => {
+    if (!editable) return;
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* 합성 이벤트 등 */ }
-    info.current = { kind: 'marker', id, moved: false, sx: e.clientX, sy: e.clientY };
-  };
-
-  const downPitch = (e: React.PointerEvent) => {
-    if (!editable || mode !== 'arrow') return;
-    const c = toCoord(e.clientX, e.clientY);
-    if (!c) return;
-    try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* 합성 이벤트 등 */ }
-    info.current = { kind: 'arrow', moved: false, sx: e.clientX, sy: e.clientY, start: c };
-    setDragA({ x1: c.x, y1: c.y, x2: c.x, y2: c.y });
+    try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* 합성 이벤트 */ }
+    info.current = { kind: mode, id, moved: false, sx: e.clientX, sy: e.clientY };
   };
 
   const move = (e: React.PointerEvent) => {
@@ -77,27 +76,42 @@ function TacticsPitch({
     i.moved = true;
     const c = toCoord(e.clientX, e.clientY);
     if (!c) return;
-    i.last = c; // state는 비동기라 up()에서는 ref 좌표를 사용
-    if (i.kind === 'marker' && i.id) setDragM({ id: i.id, ...c });
-    else if (i.kind === 'arrow') setDragA(a => (a ? { ...a, x2: c.x, y2: c.y } : a));
+    i.last = c;
+    if (i.kind === 'place') setDragM({ id: i.id, ...c });
+    else setPreview({ id: i.id, ...c });
   };
 
   const up = () => {
     const i = info.current;
     info.current = null;
-    if (i?.moved && i.last) {
-      if (i.kind === 'marker' && i.id && onMarkerMove) onMarkerMove(i.id, i.last.x, i.last.y);
-      if (i.kind === 'arrow' && i.start && onArrowAdd) {
-        const a: TacticArrow = { x1: i.start.x, y1: i.start.y, x2: i.last.x, y2: i.last.y };
-        if (Math.hypot(a.x2 - a.x1, a.y2 - a.y1) >= 6) onArrowAdd(a);
+    if (i) {
+      if (i.moved && i.last) {
+        if (i.kind === 'place' && onPlace) onPlace(i.id, i.last.x, i.last.y);
+        if (i.kind === 'move' && onSetMove) onSetMove(i.id, i.last.x, i.last.y);
+      } else if (!i.moved && i.kind === 'move' && onClearMove) {
+        onClearMove(i.id); // 이동 모드에서 짧게 탭 → 그 마커의 이동 삭제
       }
     }
     setDragM(null);
-    setDragA(null);
+    setPreview(null);
   };
 
-  const posOf = (m: TacticMarker) => (dragM && dragM.id === m.id ? { x: dragM.x, y: dragM.y } : { x: m.x, y: m.y });
-  const arrows = dragA ? [...cut.arrows, dragA] : cut.arrows;
+  // 현재 표시 위치: 애니메이션 중이면 to, 아니면 시작 위치 (드래그 중이면 드래그 좌표)
+  const posOf = (m: TacticMarker) => {
+    if (dragM && dragM.id === m.id) return { x: dragM.x, y: dragM.y };
+    if (animating && m.to) return { x: m.to.x, y: m.to.y };
+    return { x: m.x, y: m.y };
+  };
+
+  // 이동 화살표: 마커 시작 → 목표 (미리보기 중이면 커서 위치)
+  const moveArrows = cut.markers
+    .map(m => {
+      const pv = preview && preview.id === m.id ? preview : null;
+      const to = pv ?? m.to;
+      if (!to) return null;
+      return { id: m.id, isBall: m.kind === 'ball', x1: m.x, y1: m.y, x2: to.x, y2: to.y };
+    })
+    .filter((a): a is NonNullable<typeof a> => !!a);
 
   return (
     <div
@@ -108,7 +122,6 @@ function TacticsPitch({
         background: 'linear-gradient(180deg, #2f4f3a 0%, #263f30 100%)',
         touchAction: editable ? 'none' : undefined,
       }}
-      onPointerDown={downPitch}
       onPointerMove={move}
       onPointerUp={up}
     >
@@ -121,19 +134,24 @@ function TacticsPitch({
       <div className="absolute left-1/2 -translate-x-1/2 border-2 border-emerald-200/50" style={{ bottom: '3.5%', width: '54%', height: '15%' }} />
       <div className="absolute left-1/2 -translate-x-1/2 border-2 border-emerald-200/50" style={{ bottom: '3.5%', width: '28%', height: '6.5%' }} />
 
-      {/* 화살표 (SVG 오버레이) */}
+      {/* 이동 경로 화살표 (선수=하늘색, 공=노란색 점선) */}
       <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs>
-          <marker id="tarrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <marker id="mv-p" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#7dd3fc" />
           </marker>
+          <marker id="mv-b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#fcd34d" />
+          </marker>
         </defs>
-        {arrows.map((a, i) => (
+        {!animating && moveArrows.map(a => (
           <line
-            key={i}
+            key={a.id}
             x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2}
-            stroke="#7dd3fc" strokeWidth="1.1" strokeDasharray="2.4 1.6"
-            markerEnd="url(#tarrow)" vectorEffect="non-scaling-stroke" strokeLinecap="round"
+            stroke={a.isBall ? '#fcd34d' : '#7dd3fc'}
+            strokeDasharray={a.isBall ? '1.2 1.6' : '2.4 1.6'}
+            markerEnd={a.isBall ? 'url(#mv-b)' : 'url(#mv-p)'}
+            vectorEffect="non-scaling-stroke" strokeLinecap="round"
             style={{ strokeWidth: 2.5 }}
           />
         ))}
@@ -143,6 +161,7 @@ function TacticsPitch({
       {cut.markers.map(m => {
         const p = posOf(m);
         const isBall = m.kind === 'ball';
+        const hasMove = !!m.to;
         return (
           <div
             key={m.id}
@@ -150,17 +169,23 @@ function TacticsPitch({
             style={{
               left: `${p.x}%`, top: `${p.y}%`,
               zIndex: dragM?.id === m.id ? 30 : isBall ? 20 : 10,
-              transition: dragM?.id === m.id ? 'none' : playing ? 'left 1.1s ease-in-out, top 1.1s ease-in-out' : 'left .15s, top .15s',
-              cursor: editable && mode === 'move' ? 'grab' : undefined,
+              transition: dragM?.id === m.id
+                ? 'none'
+                : animating
+                  ? `left ${MOVE_MS}ms ease-in-out, top ${MOVE_MS}ms ease-in-out`
+                  : 'left .15s, top .15s',
+              cursor: editable ? (mode === 'place' ? 'grab' : 'crosshair') : undefined,
             }}
-            onPointerDown={e => downMarker(e, m.id)}
+            onPointerDown={e => down(e, m.id)}
           >
             {isBall ? (
               <div className="w-5 h-5 rounded-full bg-white border-2 border-gray-800 shadow-md flex items-center justify-center">
                 <div className="w-2 h-2 bg-gray-800" style={{ clipPath: 'polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%)' }} />
               </div>
             ) : (
-              <div className="w-10 h-10 rounded-full bg-white/95 border-2 border-white shadow-lg flex items-center justify-center">
+              <div className={`w-10 h-10 rounded-full bg-white/95 border-2 shadow-lg flex items-center justify-center ${
+                hasMove && !animating ? 'border-sky-300' : 'border-white'
+              }`}>
                 <span className="text-[9px] font-extrabold text-gray-800">{m.label}</span>
               </div>
             )}
@@ -184,21 +209,27 @@ export default function TacticsPage() {
 
   const tactic = tactics.find(t => t.id === id) || null;
 
-  // 로컬 편집 상태 (변경 즉시 저장)
   const [cuts, setCuts] = useState<TacticCut[]>([]);
   const [title, setTitle] = useState('');
   const [cutIdx, setCutIdx] = useState(0);
-  const [mode, setMode] = useState<'move' | 'arrow'>('move');
-  const [playing, setPlaying] = useState(false);
+  const [mode, setMode] = useState<'place' | 'move'>('move');
+  const [animating, setAnimating] = useState(false); // 현재 장면 이동 재생 중
+  const [playingAll, setPlayingAll] = useState(false);
+  const playToken = useRef(0);
   const loadedId = useRef<string | null>(null);
 
   useEffect(() => {
     if (tactic && loadedId.current !== tactic.id) {
       loadedId.current = tactic.id;
-      setCuts(tactic.cuts.map(c => ({ markers: [...c.markers], arrows: [...c.arrows], note: c.note })));
+      setCuts(tactic.cuts.map(c => ({
+        markers: c.markers.map(m => ({ ...m })),
+        arrows: c.arrows || [],
+        note: c.note,
+      })));
       setTitle(tactic.title);
       setCutIdx(0);
-      setPlaying(false);
+      setAnimating(false);
+      setPlayingAll(false);
     }
   }, [tactic]);
 
@@ -215,13 +246,38 @@ export default function TacticsPage() {
     });
   };
 
-  // 재생: 컷을 순서대로 넘김
-  useEffect(() => {
-    if (!playing) return;
-    if (cutIdx >= cuts.length - 1) { setPlaying(false); return; }
-    const t = setTimeout(() => setCutIdx(i => i + 1), 1600);
-    return () => clearTimeout(t);
-  }, [playing, cutIdx, cuts.length]);
+  const stopPlay = () => {
+    playToken.current++;
+    setAnimating(false);
+    setPlayingAll(false);
+  };
+
+  // 이 장면 재생: 시작 → (이동 있는 마커들) 목표로 → 끝나면 원위치
+  const playScene = async () => {
+    const token = ++playToken.current;
+    setAnimating(true);
+    await new Promise(r => setTimeout(r, MOVE_MS + 250));
+    if (playToken.current !== token) return;
+    setAnimating(false);
+  };
+
+  // 전체 재생: 현재 장면부터 이동 → 다음 장면으로 이어서
+  const playAll = async () => {
+    const token = ++playToken.current;
+    setPlayingAll(true);
+    for (let i = cutIdx; i < cuts.length; i++) {
+      if (playToken.current !== token) return;
+      setCutIdx(i);
+      setAnimating(false);
+      await new Promise(r => setTimeout(r, 350)); // 장면 시작 위치 잠깐 보여줌
+      if (playToken.current !== token) return;
+      setAnimating(true);
+      await new Promise(r => setTimeout(r, MOVE_MS + 300));
+    }
+    if (playToken.current !== token) return;
+    setAnimating(false);
+    setPlayingAll(false);
+  };
 
   const handleCreate = async () => {
     const t = await saveTactic({
@@ -247,7 +303,7 @@ export default function TacticsPage() {
     } catch { prompt('아래 링크를 복사하세요:', url); }
   };
 
-  // ── 목록 화면 ──
+  // ── 목록 ──
   if (!id || !tactic) {
     return (
       <div className="min-h-screen bg-gray-50 pb-8">
@@ -255,7 +311,7 @@ export default function TacticsPage() {
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
             <Clapperboard size={20} /> 전술 보드
           </h1>
-          <p className="text-blue-200 text-sm mt-1">감독의 전술을 장면으로 보고, 재생으로 움직임을 확인하세요</p>
+          <p className="text-blue-200 text-sm mt-1">선수와 공의 움직임을 지정하고, 재생으로 확인하세요</p>
         </div>
 
         <div className="px-4 -mt-4 space-y-3">
@@ -285,7 +341,7 @@ export default function TacticsPage() {
                   <span className="text-[10px] text-gray-400">{fmtDate(t.updatedAt)}</span>
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">
-                  컷 {t.cuts.length}개 · 감독 {t.authorName}
+                  장면 {t.cuts.length}개 · 감독 {t.authorName}
                 </p>
               </button>
             ))
@@ -295,14 +351,16 @@ export default function TacticsPage() {
     );
   }
 
-  // ── 상세/편집 화면 ──
+  // ── 상세/편집 ──
   const cut = cuts[cutIdx] ?? defaultCut();
+  const editable = coach && !animating && !playingAll;
+  const moveCount = cut.markers.filter(m => m.to).length;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
       {/* 헤더 */}
       <div className="bg-[#1e3a5f] text-white px-4 py-3 flex items-center gap-2">
-        <button onClick={() => navigate('/tactics')} className="p-1 -ml-1 rounded-lg hover:bg-white/10">
+        <button onClick={() => { stopPlay(); navigate('/tactics'); }} className="p-1 -ml-1 rounded-lg hover:bg-white/10">
           <ChevronLeft size={20} />
         </button>
         {coach ? (
@@ -320,6 +378,7 @@ export default function TacticsPage() {
           <button
             onClick={async () => {
               if (!confirm('이 전술을 삭제할까요?')) return;
+              stopPlay();
               await deleteTactic(tactic.id);
               navigate('/tactics');
             }}
@@ -331,12 +390,12 @@ export default function TacticsPage() {
       </div>
 
       <div className="p-3 space-y-3 max-w-[520px] mx-auto">
-        {/* 컷 탭 + 재생 */}
+        {/* 장면 탭 + 재생 */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {cuts.map((_, i) => (
             <button
               key={i}
-              onClick={() => { setPlaying(false); setCutIdx(i); }}
+              onClick={() => { stopPlay(); setCutIdx(i); }}
               className={`shrink-0 w-9 h-9 rounded-xl text-xs font-bold transition-colors ${
                 i === cutIdx ? 'bg-[#1e3a5f] text-white shadow' : 'bg-white text-gray-500 border border-gray-200'
               }`}
@@ -347,72 +406,81 @@ export default function TacticsPage() {
           {coach && (
             <button
               onClick={() => {
-                // 현재 컷 복제 (화살표는 비움) → 다음 장면 만들기
-                const dup: TacticCut = { markers: cut.markers.map(m => ({ ...m })), arrows: [], note: '' };
+                // 이동 결과를 시작 위치로 갖는 다음 장면 생성
+                stopPlay();
+                const nextMarkers = cut.markers.map(m => {
+                  const { to, ...rest } = m;
+                  return { ...rest, x: to?.x ?? m.x, y: to?.y ?? m.y };
+                });
+                const dup: TacticCut = { markers: nextMarkers, arrows: [], note: '' };
                 const next = [...cuts.slice(0, cutIdx + 1), dup, ...cuts.slice(cutIdx + 1)];
                 setCuts(next); persist(next); setCutIdx(cutIdx + 1);
               }}
-              className="shrink-0 w-9 h-9 rounded-xl bg-green-50 text-green-600 border border-green-200 flex items-center justify-center"
-              title="현재 컷 복제해서 다음 장면 추가"
+              className="shrink-0 flex items-center gap-1 px-2.5 h-9 rounded-xl bg-green-50 text-green-600 border border-green-200 text-[10px] font-bold"
+              title="이동이 끝난 위치를 시작점으로 다음 장면 추가"
             >
-              <Copy size={14} />
+              <ArrowRightToLine size={13} /> 다음 장면
             </button>
           )}
           <div className="flex-1" />
           <button
             onClick={() => {
-              if (playing) { setPlaying(false); return; }
-              setCutIdx(0);
-              // 첫 컷에서 잠깐 멈췄다가 시작
-              setTimeout(() => setPlaying(true), 150);
+              if (animating || playingAll) { stopPlay(); return; }
+              if (cuts.length > 1) playAll(); else playScene();
             }}
-            disabled={cuts.length < 2}
+            disabled={moveCount === 0 && cuts.length < 2}
             className={`shrink-0 flex items-center gap-1.5 px-3.5 h-9 rounded-xl text-xs font-bold transition-colors ${
-              playing ? 'bg-red-500 text-white' : 'bg-[#16a34a] text-white disabled:bg-gray-200 disabled:text-gray-400'
+              animating || playingAll
+                ? 'bg-red-500 text-white'
+                : 'bg-[#16a34a] text-white disabled:bg-gray-200 disabled:text-gray-400'
             }`}
           >
-            {playing ? <><Square size={12} className="fill-current" /> 정지</> : <><Play size={12} className="fill-current" /> 재생</>}
+            {animating || playingAll
+              ? <><Square size={12} className="fill-current" /> 정지</>
+              : <><Play size={12} className="fill-current" /> 재생</>}
           </button>
         </div>
 
         {/* 편집 도구 (감독) */}
-        {coach && !playing && (
+        {coach && !animating && !playingAll && (
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setMode('move')}
               className={`flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold ${
-                mode === 'move' ? 'bg-[#1e3a5f] text-white' : 'bg-white text-gray-500 border border-gray-200'
+                mode === 'move' ? 'bg-sky-600 text-white' : 'bg-white text-gray-500 border border-gray-200'
               }`}
             >
-              <MousePointer2 size={13} /> 이동
+              <MoveUpRight size={13} /> 이동 지정
             </button>
             <button
-              onClick={() => setMode('arrow')}
+              onClick={() => setMode('place')}
               className={`flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold ${
-                mode === 'arrow' ? 'bg-sky-600 text-white' : 'bg-white text-gray-500 border border-gray-200'
+                mode === 'place' ? 'bg-[#1e3a5f] text-white' : 'bg-white text-gray-500 border border-gray-200'
               }`}
             >
-              <MoveUpRight size={13} /> 화살표
+              <Hand size={13} /> 배치
             </button>
             <button
-              onClick={() => patchCut(cutIdx, { arrows: cut.arrows.slice(0, -1) })}
-              disabled={cut.arrows.length === 0}
+              onClick={() => patchCut(cutIdx, {
+                markers: cut.markers.map(m => { const { to, ...rest } = m; void to; return rest; }),
+              })}
+              disabled={moveCount === 0}
               className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold bg-white text-gray-500 border border-gray-200 disabled:opacity-40"
             >
-              <Undo2 size={13} /> 화살표 취소
+              <Eraser size={13} /> 이동 지우기
             </button>
             <div className="flex-1" />
             {cuts.length > 1 && (
               <button
                 onClick={() => {
-                  if (!confirm(`${cutIdx + 1}번 컷을 삭제할까요?`)) return;
+                  if (!confirm(`${cutIdx + 1}번 장면을 삭제할까요?`)) return;
                   const next = cuts.filter((_, i) => i !== cutIdx);
                   setCuts(next); persist(next);
                   setCutIdx(Math.max(0, cutIdx - 1));
                 }}
-                className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold text-red-500 bg-white border border-gray-200"
+                className="px-3 py-2 rounded-xl text-[11px] font-bold text-red-500 bg-white border border-gray-200"
               >
-                <X size={13} /> 컷 삭제
+                장면 삭제
               </button>
             )}
           </div>
@@ -421,19 +489,34 @@ export default function TacticsPage() {
         {/* 피치 */}
         <TacticsPitch
           cut={cut}
-          editable={coach && !playing}
+          editable={editable}
           mode={mode}
-          playing={playing}
-          onMarkerMove={(mid, x, y) =>
+          animating={animating}
+          onPlace={(mid, x, y) =>
             patchCut(cutIdx, { markers: cut.markers.map(m => (m.id === mid ? { ...m, x, y } : m)) })
           }
-          onArrowAdd={a => patchCut(cutIdx, { arrows: [...cut.arrows, a] })}
+          onSetMove={(mid, x, y) =>
+            patchCut(cutIdx, { markers: cut.markers.map(m => (m.id === mid ? { ...m, to: { x, y } } : m)) })
+          }
+          onClearMove={(mid) =>
+            patchCut(cutIdx, {
+              markers: cut.markers.map(m => {
+                if (m.id !== mid) return m;
+                const { to, ...rest } = m; void to; return rest;
+              }),
+            })
+          }
         />
 
-        {/* 컷 설명 */}
+        {/* 장면 설명 */}
         <div className="bg-white rounded-2xl shadow-sm p-4">
-          <p className="text-[11px] font-bold text-gray-500 mb-1.5">컷 설명 ({cutIdx + 1}/{cuts.length})</p>
-          {coach && !playing ? (
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-bold text-gray-500">장면 설명 ({cutIdx + 1}/{cuts.length})</p>
+            {moveCount > 0 && (
+              <span className="text-[10px] text-sky-600 font-bold">이동 {moveCount}개</span>
+            )}
+          </div>
+          {coach && !animating && !playingAll ? (
             <textarea
               value={cut.note}
               onChange={e => patchCut(cutIdx, { note: e.target.value }, false)}
@@ -449,10 +532,10 @@ export default function TacticsPage() {
           )}
         </div>
 
-        {coach && !playing && (
+        {coach && !animating && !playingAll && (
           <p className="text-center text-[10px] text-gray-400 leading-relaxed">
-            이동 모드: 선수·공을 끌어서 배치 · 화살표 모드: 피치를 끌어서 화살표<br />
-            컷을 복제해 다음 장면을 만들고, 재생으로 움직임을 확인하세요. 변경은 자동 저장됩니다.
+            <b>이동 지정</b>: 선수·공에서 끌면 화살표가 생기고, 재생하면 그 방향으로 움직입니다 (탭하면 삭제)<br />
+            <b>배치</b>: 시작 위치를 옮깁니다 · <b>다음 장면</b>: 이동이 끝난 자리에서 이어지는 장면을 만듭니다
           </p>
         )}
       </div>
