@@ -216,19 +216,18 @@ export default function MatchResultPage() {
     const url = window.location.origin + import.meta.env.BASE_URL + '#/match';
     const dateStr = new Date(m.date).toLocaleDateString('ko-KR');
     const guests = getGuestsByMatch(m.id);
-    const counts = getVoteCounts(m.votes || {});
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const maxV = Math.max(0, ...Object.values(counts));
 
     const headline = pomNames.length > 1
       ? `${m.title} 공동 POM은 ${pomNames.join(', ')} 입니다!`
       : `${m.title} POM은 ${pomNames[0]} 입니다!`;
 
-    // 골 기록 (있으면)
-    const goalLines = (m.goals || []).map((g) => {
-      const info = getPlayerInfo(members, guests, g.playerId);
-      return `${g.quarter}Q ${info?.name || '알 수 없음'}`;
-    });
+    // 골 기록 — 이름을 못 찾는 기록(삭제된 용병 등)은 제외
+    const goalLines = (m.goals || [])
+      .map((g) => {
+        const info = getPlayerInfo(members, guests, g.playerId);
+        return info ? `${g.quarter}Q ${info.name}` : null;
+      })
+      .filter((x): x is string => x !== null);
 
     const lines = [
       headline,
@@ -236,7 +235,6 @@ export default function MatchResultPage() {
       `${dateStr} · ${m.location || '-'}`,
       `오지FC ${m.scoreA} : ${m.scoreB} ${m.opponentName?.trim() || '상대팀'}`,
     ];
-    if (maxV > 0) lines.push(`득표 ${maxV}표 / 총 ${total}표`);
     if (goalLines.length > 0) lines.push('', '득점: ' + goalLines.join(', '));
     lines.push('', '오지FC 앱에서 확인하세요');
     const text = lines.join('\n');
