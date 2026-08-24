@@ -621,6 +621,41 @@ export default function MatchResultPage() {
                             </div>
                           )}
 
+                          {/* 현재 1위 (동률이면 공동) */}
+                          {totalVotesForVoting > 0 && (() => {
+                            const maxV = Math.max(0, ...Object.values(voteCounts));
+                            let leaders = Object.entries(voteCounts)
+                              .filter(([, c]) => c === maxV).map(([id]) => id);
+                            if (maxV < 2 && leaders.length > 1) leaders = []; // 1표 동률은 POM 없음
+                            if (leaders.length === 0) {
+                              return (
+                                <div className="mt-3 bg-gray-50 rounded-lg px-3 py-2 text-center">
+                                  <p className="text-[11px] text-gray-500">1표씩 동률 — 이대로면 POM 없음</p>
+                                </div>
+                              );
+                            }
+                            const names = leaders
+                              .map((lid) => votablePlayers.find((p) => p.id === lid)?.name || '?')
+                              .join(' · ');
+                            return (
+                              <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <Trophy size={13} className="text-yellow-500 fill-yellow-500 shrink-0" />
+                                  <span className="text-[11px] text-yellow-800">
+                                    {leaders.length > 1 ? '공동 1위' : '현재 1위'}:{' '}
+                                    <b className="font-bold">{names}</b>
+                                    <span className="text-yellow-600"> ({maxV}표)</span>
+                                  </span>
+                                </div>
+                                {leaders.length > 1 && (
+                                  <p className="text-[10px] text-yellow-700 text-center mt-1">
+                                    동률이 유지되면 {leaders.length}명 모두 공동 POM으로 선정됩니다
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
+
                           {/* Vote percentage bars */}
                           {totalVotesForVoting > 0 && (
                             <div className="mt-3 space-y-1.5">
