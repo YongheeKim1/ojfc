@@ -114,20 +114,22 @@ export default function MatchResultPage() {
         const elapsed = now - (match.votingStartedAt || match.date);
         if (elapsed < ONE_DAY) continue;
 
-        // POM 계산
+        // POM 계산 — 동률 규칙:
+        //   최다득표 2표 이상 + 동률 → 공동 POM 전원 선정
+        //   최다득표 1표 + 동률     → POM 없음 (1표 동률은 무의미)
         const voteCounts = getVoteCounts(match.votes);
-        let pomId: string | null = null;
-        let maxVotes = 0;
-        for (const [id, count] of Object.entries(voteCounts)) {
-          if (count > maxVotes) { maxVotes = count; pomId = id; }
-        }
-        if (pomId) {
-          const member = members.find(m => m.id === pomId);
+        const maxVotes = Math.max(0, ...Object.values(voteCounts));
+        let winners = maxVotes > 0
+          ? Object.entries(voteCounts).filter(([, c]) => c === maxVotes).map(([id]) => id)
+          : [];
+        if (maxVotes < 2 && winners.length > 1) winners = [];
+        for (const wid of winners) {
+          const member = members.find(m => m.id === wid);
           if (member) {
-            await updateMember(pomId, { pomCount: (member.pomCount || 0) + 1 });
+            await updateMember(wid, { pomCount: (member.pomCount || 0) + 1 });
           }
         }
-        await updateMatch(match.id, { pomId, status: 'done' });
+        await updateMatch(match.id, { pomId: winners[0] ?? null, pomIds: winners, status: 'done' });
       }
     };
     autoFinalize();
@@ -682,9 +684,17 @@ export default function MatchResultPage() {
             </h2>
             <div className="space-y-2">
               {doneMatches.map((match) => {
-                const pomMember = match.pomId ? getMemberById(members, match.pomId) : null;
-                const pomGuest = !pomMember && match.pomId ? getGuestsByMatch(match.id).find((g) => g.id === match.pomId) : null;
-                const pomName = pomMember ? pomMember.name : pomGuest ? pomGuest.name + ' (용병)' : null;
+                const pomIdList = (match.pomIds && match.pomIds.length > 0)
+                  ? match.pomIds
+                  : (match.pomId ? [match.pomId] : []);
+                const pomName = pomIdList.length > 0
+                  ? pomIdList.map((pid) => {
+                      const mem = getMemberById(members, pid);
+                      if (mem) return mem.name;
+                      const g = getGuestsByMatch(match.id).find((x) => x.id === pid);
+                      return g ? g.name + ' (용병)' : '?';
+                    }).join(' · ')
+                  : null;
                 const isExpanded = expandedHistoryId === match.id;
                 const matchVoteCounts = getVoteCounts(match.votes);
                 const matchTotalVotes = Object.values(matchVoteCounts).reduce((a, b) => a + b, 0);

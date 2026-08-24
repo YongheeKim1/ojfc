@@ -141,7 +141,8 @@ export interface Match {
   scoreB: number;
   opponentName: string; // B팀 이름 (빈값이면 "상대팀")
   goals: GoalRecord[]; // 골 기록
-  pomId: string | null;
+  pomId: string | null; // 대표 POM (하위 호환)
+  pomIds?: string[];    // 공동 POM (동률 2표 이상이면 여러 명)
   voters: string[];
   votes: Record<string, string>;
   quarterResults?: QuarterResult[]; // 쿼터별 결과 (승률 분석용)

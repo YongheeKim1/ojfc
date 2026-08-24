@@ -244,11 +244,14 @@ export default function HomePage() {
                 <p className="text-3xl font-extrabold text-[#16a34a]">{latestMatch.scoreB}</p>
               </div>
             </div>
-            {latestMatch.pomId && (
+            {(latestMatch.pomIds?.length || latestMatch.pomId) && (
               <div className="mt-3 flex items-center gap-2 text-sm bg-yellow-50 rounded-lg px-3 py-2">
                 <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
                 <span className="text-gray-500">POM:</span>
-                <span className="font-bold text-gray-700">{getMemberName(latestMatch.pomId)}</span>
+                <span className="font-bold text-gray-700">
+                  {(latestMatch.pomIds?.length ? latestMatch.pomIds : [latestMatch.pomId!])
+                    .map(pid => getMemberName(pid)).join(' · ')}
+                </span>
               </div>
             )}
             <div className="mt-2">
