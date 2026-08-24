@@ -211,6 +211,49 @@ export default function MatchResultPage() {
     }
   };
 
+  // POM 결과 공유 (모두 가능)
+  const handleSharePom = async (m: Match, pomNames: string[]) => {
+    const url = window.location.origin + import.meta.env.BASE_URL + '#/match';
+    const dateStr = new Date(m.date).toLocaleDateString('ko-KR');
+    const guests = getGuestsByMatch(m.id);
+    const counts = getVoteCounts(m.votes || {});
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const maxV = Math.max(0, ...Object.values(counts));
+
+    const headline = pomNames.length > 1
+      ? `${m.title} 공동 POM은 ${pomNames.join(', ')} 입니다!`
+      : `${m.title} POM은 ${pomNames[0]} 입니다!`;
+
+    // 골 기록 (있으면)
+    const goalLines = (m.goals || []).map((g) => {
+      const info = getPlayerInfo(members, guests, g.playerId);
+      return `${g.quarter}Q ${info?.name || '알 수 없음'}`;
+    });
+
+    const lines = [
+      headline,
+      '',
+      `${dateStr} · ${m.location || '-'}`,
+      `오지FC ${m.scoreA} : ${m.scoreB} ${m.opponentName?.trim() || '상대팀'}`,
+    ];
+    if (maxV > 0) lines.push(`득표 ${maxV}표 / 총 ${total}표`);
+    if (goalLines.length > 0) lines.push('', '득점: ' + goalLines.join(', '));
+    lines.push('', '오지FC 앱에서 확인하세요');
+    const text = lines.join('\n');
+
+    if (navigator.share) {
+      try { await navigator.share({ text, url }); return; } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(`${text}\n${url}`);
+      alert('POM 결과가 복사되었습니다. 카톡에 붙여넣기 하세요!');
+    } catch {
+      prompt('아래 내용을 복사해서 카톡에 붙여넣기 하세요:', `${text}\n${url}`);
+    }
+  };
+
   const handleDeleteMatch = async (matchId: string) => {
     if (!admin) return;
     if (!confirm('정말 이 매치를 삭제하시겠습니까?')) return;
@@ -722,14 +765,13 @@ export default function MatchResultPage() {
                 const pomIdList = (match.pomIds && match.pomIds.length > 0)
                   ? match.pomIds
                   : (match.pomId ? [match.pomId] : []);
-                const pomName = pomIdList.length > 0
-                  ? pomIdList.map((pid) => {
-                      const mem = getMemberById(members, pid);
-                      if (mem) return mem.name;
-                      const g = getGuestsByMatch(match.id).find((x) => x.id === pid);
-                      return g ? g.name + ' (용병)' : '?';
-                    }).join(' · ')
-                  : null;
+                const pomNameList = pomIdList.map((pid) => {
+                  const mem = getMemberById(members, pid);
+                  if (mem) return mem.name;
+                  const g = getGuestsByMatch(match.id).find((x) => x.id === pid);
+                  return g ? g.name + ' (용병)' : '?';
+                });
+                const pomName = pomNameList.length > 0 ? pomNameList.join(' · ') : null;
                 const isExpanded = expandedHistoryId === match.id;
                 const matchVoteCounts = getVoteCounts(match.votes);
                 const matchTotalVotes = Object.values(matchVoteCounts).reduce((a, b) => a + b, 0);
@@ -745,6 +787,15 @@ export default function MatchResultPage() {
                             <span className="flex items-center gap-1 text-xs text-yellow-600 font-medium">
                               <Trophy size={12} className="fill-yellow-500 text-yellow-500" />{pomName}
                             </span>
+                          )}
+                          {pomName && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSharePom(match, pomNameList); }}
+                              className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-yellow-600 transition-colors"
+                              title="POM 결과 공유"
+                            >
+                              <Share2 size={12} />
+                            </button>
                           )}
                           {admin && (
                             <button onClick={(e) => { e.stopPropagation(); handleDeleteMatch(match.id); }}
