@@ -68,6 +68,10 @@ export default function DuesPage() {
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedRow[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // 암호 걸린 엑셀 대응
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pw, setPw] = useState('');
+  const [pwError, setPwError] = useState('');
 
   useEffect(() => { setAmountDraft(String(cur?.amount ?? '')); }, [monthKey, cur?.amount]);
 
@@ -121,14 +125,36 @@ export default function DuesPage() {
     } catch { prompt('아래 내용을 복사하세요:', text); }
   };
 
-  // 엑셀 파싱 — 입금자명을 멤버 이름과 대조
-  const handleFile = async (file: File) => {
+  // 엑셀 파싱 — 입금자명을 멤버 이름과 대조 (암호 걸린 파일 지원)
+  const handleFile = async (file: File, password?: string) => {
     setParsing(true);
     setParsed(null);
+    setPwError('');
     try {
       const XLSX = await import('xlsx'); // 필요할 때만 로드
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
+      let data: ArrayBuffer | Uint8Array = await file.arrayBuffer();
+
+      // 은행 엑셀은 보통 암호가 걸려 있음 → 감지 후 복호화
+      const { OOXMLFile, isEncrypted } = await import('office-crypto');
+      const inputBuf = new Uint8Array(data as ArrayBuffer);
+      if (isEncrypted(inputBuf)) {
+        if (!password) {
+          setPendingFile(file);   // 비밀번호 입력받기
+          setParsing(false);
+          return;
+        }
+        try {
+          const f = new OOXMLFile(inputBuf);
+          f.loadKey({ password });
+          data = f.decrypt();
+        } catch {
+          setPwError('비밀번호가 맞지 않습니다');
+          setParsing(false);
+          return;
+        }
+      }
+
+      const wb = XLSX.read(data, { type: 'array' });
       const rows: unknown[][] = [];
       for (const sheetName of wb.SheetNames) {
         const sheet = wb.Sheets[sheetName];
@@ -169,6 +195,8 @@ export default function DuesPage() {
 
       setParsed(found);
       setPicked(new Set(found.filter(f => f.memberId).map(f => f.memberId!)));
+      setPendingFile(null);
+      setPw('');
     } catch (err) {
       console.error(err);
       alert('엑셀을 읽지 못했습니다. 파일 형식을 확인해주세요.');
@@ -288,6 +316,41 @@ export default function DuesPage() {
           >
             {parsing ? <><Loader2 size={15} className="animate-spin" /> 읽는 중...</> : <><FileSpreadsheet size={15} /> 엑셀 파일 선택</>}
           </button>
+
+          {/* 비밀번호 입력 (암호 걸린 파일) */}
+          {pendingFile && (
+            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-[11px] font-bold text-amber-800 mb-1">이 파일은 비밀번호가 걸려 있습니다</p>
+              <p className="text-[10px] text-amber-700 mb-2">
+                은행에서 지정한 비밀번호를 입력하세요 (보통 생년월일 6자리)
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={pw}
+                  onChange={e => { setPw(e.target.value); setPwError(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter' && pw) handleFile(pendingFile, pw); }}
+                  placeholder="비밀번호"
+                  autoFocus
+                  className="flex-1 px-3 py-2 border border-amber-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+                <button
+                  onClick={() => handleFile(pendingFile, pw)}
+                  disabled={!pw || parsing}
+                  className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold disabled:bg-gray-300 transition-colors"
+                >
+                  열기
+                </button>
+                <button
+                  onClick={() => { setPendingFile(null); setPw(''); setPwError(''); }}
+                  className="px-2 text-gray-400 hover:text-gray-600"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              {pwError && <p className="text-[11px] text-red-600 font-medium mt-1.5">{pwError}</p>}
+            </div>
+          )}
 
           {/* 파싱 결과 */}
           {parsed && (
