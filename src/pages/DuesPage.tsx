@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Wallet, Check, Share2, Plus, Trash2, FileSpreadsheet, Loader2,
+  Wallet, Check, Share2, Plus, Trash2, FileSpreadsheet, Loader2, KeyRound,
   TrendingUp, TrendingDown, X,
 } from 'lucide-react';
 import {
@@ -33,6 +33,46 @@ function buildMonthOptions(dues: DuesMonth[]): string[] {
   }
   dues.forEach(d => keys.add(d.id));
   return Array.from(keys).sort((a, b) => b.localeCompare(a));
+}
+
+// 은행마다 내려주는 형식이 달라서(진짜 xlsx / 구형 xls / HTML 표를 xls로 위장 / CSV)
+// 한 가지 방식으로만 읽으면 "형식 오류"가 납니다. 순서대로 시도합니다.
+function readWorkbook(XLSX: typeof import('xlsx'), data: Uint8Array) {
+  const attempts: Array<() => unknown> = [
+    () => XLSX.read(data, { type: 'array' }),
+    // HTML 표 / CSV 를 .xls 확장자로 내려주는 은행 대응
+    () => XLSX.read(new TextDecoder('utf-8').decode(data), { type: 'string' }),
+    () => XLSX.read(new TextDecoder('euc-kr').decode(data), { type: 'string' }),
+  ];
+  // 텍스트로 강제 해석하면 깨진 파일도 "1칸짜리 시트"로 읽혀버립니다.
+  // 표처럼 생겼는지(2칸 이상인 행이 있는지) 확인해야 진짜 오류를 놓치지 않습니다.
+  const looksLikeTable = (wb: ReturnType<typeof XLSX.read>) =>
+    wb.SheetNames.some(n => {
+      const arr = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 }) as unknown[][];
+      return arr.some(r => Array.isArray(r) && r.length >= 2);
+    });
+
+  let lastErr: unknown = null;
+  for (const attempt of attempts) {
+    try {
+      const wb = attempt() as ReturnType<typeof XLSX.read>;
+      if (wb?.SheetNames?.length && looksLikeTable(wb)) return wb;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error('표 형태의 데이터를 찾지 못했습니다 (지원하지 않는 형식일 수 있습니다)');
+}
+
+// 은행 엑셀 비밀번호는 매번 같아서 기기에 저장해 두고 자동으로 사용합니다.
+// (이 기기의 브라우저에만 남고 서버로 전송되지 않습니다)
+const PW_KEY = 'ojifc_dues_xlsx_pw';
+const DEFAULT_PW = '000215';
+function loadPw(): string {
+  try {
+    const v = localStorage.getItem(PW_KEY);
+    return v === null ? DEFAULT_PW : v;
+  } catch { return DEFAULT_PW; }
 }
 
 type ParsedRow = {
@@ -80,6 +120,14 @@ export default function DuesPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pw, setPw] = useState('');
   const [pwError, setPwError] = useState('');
+  const [parseError, setParseError] = useState('');
+  const [savedPw, setSavedPw] = useState<string>(loadPw);
+  const [showPwSetting, setShowPwSetting] = useState(false);
+
+  const storePw = (value: string) => {
+    setSavedPw(value);
+    try { localStorage.setItem(PW_KEY, value); } catch { /* 저장 실패해도 동작에는 지장 없음 */ }
+  };
 
   useEffect(() => { setAmountDraft(String(cur?.amount ?? '')); }, [monthKey, cur?.amount]);
 
@@ -138,31 +186,44 @@ export default function DuesPage() {
     setParsing(true);
     setParsed(null);
     setPwError('');
+    setParseError('');
     try {
       const XLSX = await import('xlsx'); // 필요할 때만 로드
-      let data: ArrayBuffer | Uint8Array = await file.arrayBuffer();
+      let data: Uint8Array = new Uint8Array(await file.arrayBuffer());
 
       // 은행 엑셀은 보통 암호가 걸려 있음 → 감지 후 복호화
-      const { OOXMLFile, isEncrypted } = await import('office-crypto');
-      const inputBuf = new Uint8Array(data as ArrayBuffer);
-      if (isEncrypted(inputBuf)) {
-        if (!password) {
-          setPendingFile(file);   // 비밀번호 입력받기
+      const { OfficeFile, isEncrypted, InvalidKeyError } = await import('office-crypto');
+      if (isEncrypted(data)) {
+        // 저장해 둔 비밀번호를 먼저 시도 → 맞으면 물어보지 않고 바로 연다
+        const tryPw = password ?? savedPw;
+        if (!tryPw) {
+          setPendingFile(file);
           setParsing(false);
           return;
         }
         try {
-          const f = new OOXMLFile(inputBuf);
-          f.loadKey({ password });
+          // OfficeFile: xlsx / 구형 xls 를 파일 형식에 맞게 자동 선택
+          const f = OfficeFile(data);
+          f.loadKey({ password: tryPw });
           data = f.decrypt();
-        } catch {
-          setPwError('비밀번호가 맞지 않습니다');
-          setParsing(false);
-          return;
+        } catch (err) {
+          if (err instanceof InvalidKeyError) {
+            setPendingFile(file);
+            setPwError(
+              password
+                ? '비밀번호가 맞지 않습니다'
+                : '저장된 비밀번호로 열지 못했습니다. 비밀번호를 입력해주세요'
+            );
+            setParsing(false);
+            return;
+          }
+          throw err; // 형식 문제 등은 아래에서 실제 원인을 표시
         }
+        // 직접 입력해서 성공했으면 다음부터 자동으로 쓰도록 저장
+        if (password && password !== savedPw) storePw(password);
       }
 
-      const wb = XLSX.read(data, { type: 'array' });
+      const wb = readWorkbook(XLSX, data);
       const rows: unknown[][] = [];
       for (const sheetName of wb.SheetNames) {
         const sheet = wb.Sheets[sheetName];
@@ -226,7 +287,8 @@ export default function DuesPage() {
       setPw('');
     } catch (err) {
       console.error(err);
-      alert('엑셀을 읽지 못했습니다. 파일 형식을 확인해주세요.');
+      const msg = err instanceof Error ? err.message : String(err);
+      setParseError(`${file.name} · ${msg}`);
     } finally {
       setParsing(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -338,9 +400,45 @@ export default function DuesPage() {
           <h2 className="text-sm font-bold text-gray-700 mb-1 flex items-center gap-1.5">
             <FileSpreadsheet size={15} className="text-emerald-600" /> 입금내역 엑셀 업로드
           </h2>
-          <p className="text-[11px] text-gray-400 mb-3">
+          <p className="text-[11px] text-gray-400 mb-2">
             카카오뱅크 거래내역 파일을 올리면 입금자명을 멤버와 대조해 자동 체크합니다
           </p>
+
+          {/* 저장된 비밀번호 — 암호 걸린 파일을 물어보지 않고 바로 엽니다 */}
+          <div className="mb-3">
+            <button
+              onClick={() => setShowPwSetting(v => !v)}
+              className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-700"
+            >
+              <KeyRound size={12} />
+              {savedPw
+                ? <>비밀번호 저장됨 · <span className="font-mono">{'•'.repeat(savedPw.length)}</span></>
+                : <>비밀번호 저장 안 됨</>}
+              <span className="text-gray-400 underline">변경</span>
+            </button>
+            {showPwSetting && (
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={savedPw}
+                  onChange={e => storePw(e.target.value)}
+                  placeholder="예: 000215"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20"
+                />
+                <button
+                  onClick={() => setShowPwSetting(false)}
+                  className="px-4 py-2 bg-[#1e3a5f] text-white rounded-xl text-sm font-bold"
+                >
+                  확인
+                </button>
+              </div>
+            )}
+            {showPwSetting && (
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                이 기기에만 저장되며 서버로 전송되지 않습니다
+              </p>
+            )}
+          </div>
 
           <input
             ref={fileRef}
@@ -389,6 +487,23 @@ export default function DuesPage() {
                 </button>
               </div>
               {pwError && <p className="text-[11px] text-red-600 font-medium mt-1.5">{pwError}</p>}
+            </div>
+          )}
+
+          {/* 읽기 실패 — 실제 원인을 그대로 보여줘야 고칠 수 있습니다 */}
+          {parseError && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-[11px] font-bold text-red-700 mb-1">엑셀을 읽지 못했습니다</p>
+              <p className="text-[10px] text-red-600 break-all leading-relaxed">{parseError}</p>
+              <button
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(parseError); alert('오류 내용이 복사되었습니다'); }
+                  catch { prompt('아래 내용을 복사해주세요:', parseError); }
+                }}
+                className="mt-2 text-[10px] font-bold text-red-700 underline"
+              >
+                오류 내용 복사
+              </button>
             </div>
           )}
 
