@@ -71,6 +71,24 @@ export interface Tactic {
   updatedAt: number;
 }
 
+// 회비: 월 단위 장부 (문서 id = 'YYYY-MM')
+export interface DuesExpense {
+  id: string;
+  label: string;   // 지출 내역 (구장비, 공, 조끼 ...)
+  amount: number;
+  date: number;
+}
+
+export interface DuesMonth {
+  id: string;                        // 'YYYY-MM'
+  amount: number;                    // 1인당 회비
+  paid: Record<string, number>;      // memberId -> 납부 시각
+  exempt: string[];                  // 면제 memberId
+  memo?: Record<string, string>;     // memberId -> 메모 (admin 전용)
+  expenses?: DuesExpense[];          // 지출 내역
+  updatedAt: number;
+}
+
 // 감독의 전체 공지
 export interface Announcement {
   id: string;

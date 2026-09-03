@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone, User as UserIcon } from 'lucide-react';
-import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe, getAnnouncements, getFeedbacks } from './lib/store';
+import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone, User as UserIcon, Wallet } from 'lucide-react';
+import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe, getAnnouncements, getFeedbacks, isAdmin } from './lib/store';
 import { showNotification } from './lib/notifications';
 import type { Member, Match } from './lib/types';
 import LoginPage from './pages/LoginPage';
@@ -14,6 +14,7 @@ import AttendPage from './pages/AttendPage';
 import CoachPage from './pages/CoachPage';
 import MyPage from './pages/MyPage';
 import TacticsPage from './pages/TacticsPage';
+import DuesPage from './pages/DuesPage';
 import InstallBanner from './components/InstallBanner';
 
 const tabs = [
@@ -255,6 +256,15 @@ export default function App() {
                   <UserIcon size={16} />
                   내 페이지
                 </button>
+                {isAdmin() && (
+                  <button
+                    onClick={() => { setShowLogoutMenu(false); navigate('/dues'); }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 font-medium hover:bg-gray-50 transition-colors border-b border-gray-100"
+                  >
+                    <Wallet size={16} />
+                    회비 관리
+                  </button>
+                )}
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 font-medium hover:bg-red-50 transition-colors"
@@ -278,6 +288,7 @@ export default function App() {
           <Route path="/coach" element={<CoachPage />} />
           <Route path="/me" element={<MyPage />} />
           <Route path="/tactics" element={<TacticsPage />} />
+          <Route path="/dues" element={<DuesPage />} />
           <Route path="/attend" element={<AttendPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

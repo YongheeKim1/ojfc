@@ -3,7 +3,7 @@ import {
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   query, orderBy
 } from 'firebase/firestore';
-import { Member, Guest, Match, Position, Announcement, Feedback, Tactic } from './types';
+import { Member, Guest, Match, Position, Announcement, Feedback, Tactic, DuesMonth, DuesExpense } from './types';
 import { computeAllStats, slotRate, pairRate, slotLinkWeight } from './stats';
 
 // ──────────────────────────────────────────
@@ -16,6 +16,7 @@ let matchesCache: Match[] = [];
 let announcementsCache: Announcement[] = [];
 let feedbacksCache: Feedback[] = [];
 let tacticsCache: Tactic[] = [];
+let duesCache: DuesMonth[] = [];
 let initialized = false;
 
 type Listener = () => void;
@@ -74,6 +75,14 @@ export function initFirestore() {
   const tcRef = collection(db, 'tactics');
   onSnapshot(query(tcRef, orderBy('updatedAt', 'desc')), (snap) => {
     tacticsCache = snap.docs.map(d => ({ id: d.id, ...d.data() } as Tactic));
+    notify();
+  });
+
+  // Dues (회비 장부)
+  const duesRef = collection(db, 'dues');
+  onSnapshot(duesRef, (snap) => {
+    duesCache = snap.docs.map(d => ({ ...d.data(), id: d.id } as DuesMonth))
+      .sort((a, b) => b.id.localeCompare(a.id));
     notify();
   });
 }
@@ -246,6 +255,82 @@ export async function updateTactic(id: string, updates: Partial<Tactic>) {
 export async function deleteTactic(id: string) {
   if (!isCoach()) return;
   await safeWrite(() => deleteDoc(doc(db, 'tactics', id)));
+}
+
+// ──────────────────────────────────────────
+// 회비 (dues) — 열람 전체, 수정은 admin만
+// ──────────────────────────────────────────
+export function getDuesAll(): DuesMonth[] {
+  return duesCache;
+}
+
+export function getDuesMonth(monthKey: string): DuesMonth | null {
+  return duesCache.find(d => d.id === monthKey) ?? null;
+}
+
+/** 해당 월 장부가 없으면 생성 */
+export async function ensureDuesMonth(monthKey: string, amount = 0): Promise<void> {
+  if (!isAdmin()) return;
+  if (duesCache.some(d => d.id === monthKey)) return;
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, amount, paid: {}, exempt: [], memo: {}, expenses: [], updatedAt: Date.now(),
+  }));
+}
+
+export async function setDuesAmount(monthKey: string, amount: number): Promise<void> {
+  if (!isAdmin()) return;
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, amount, updatedAt: Date.now(),
+  }, { merge: true }));
+}
+
+/** 납부 표시/해제 */
+export async function setDuesPaid(monthKey: string, memberId: string, paid: boolean): Promise<void> {
+  if (!isAdmin()) return;
+  const cur = getDuesMonth(monthKey);
+  const next = { ...(cur?.paid || {}) };
+  if (paid) next[memberId] = Date.now(); else delete next[memberId];
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, paid: next, updatedAt: Date.now(),
+  }, { merge: true }));
+}
+
+/** 면제 토글 */
+export async function setDuesExempt(monthKey: string, memberId: string, exempt: boolean): Promise<void> {
+  if (!isAdmin()) return;
+  const cur = getDuesMonth(monthKey);
+  const list = new Set(cur?.exempt || []);
+  if (exempt) list.add(memberId); else list.delete(memberId);
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, exempt: Array.from(list), updatedAt: Date.now(),
+  }, { merge: true }));
+}
+
+export async function setDuesMemo(monthKey: string, memberId: string, memo: string): Promise<void> {
+  if (!isAdmin()) return;
+  const cur = getDuesMonth(monthKey);
+  const next = { ...(cur?.memo || {}) };
+  if (memo.trim()) next[memberId] = memo.trim(); else delete next[memberId];
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, memo: next, updatedAt: Date.now(),
+  }, { merge: true }));
+}
+
+export async function addDuesExpense(monthKey: string, label: string, amount: number): Promise<void> {
+  if (!isAdmin()) return;
+  const cur = getDuesMonth(monthKey);
+  const item: DuesExpense = { id: genId(), label: label.trim(), amount, date: Date.now() };
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, expenses: [...(cur?.expenses || []), item], updatedAt: Date.now(),
+  }, { merge: true }));
+}
+
+export async function deleteDuesExpense(monthKey: string, expenseId: string): Promise<void> {
+  if (!isAdmin()) return;
+  const cur = getDuesMonth(monthKey);
+  await safeWrite(() => setDoc(doc(db, 'dues', monthKey), {
+    id: monthKey, expenses: (cur?.expenses || []).filter(e => e.id !== expenseId), updatedAt: Date.now(),
+  }, { merge: true }));
 }
 
 // ──────────────────────────────────────────
