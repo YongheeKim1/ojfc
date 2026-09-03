@@ -35,7 +35,15 @@ function buildMonthOptions(dues: DuesMonth[]): string[] {
   return Array.from(keys).sort((a, b) => b.localeCompare(a));
 }
 
-type ParsedRow = { name: string; memberId: string | null; amount: number; raw: string };
+type ParsedRow = {
+  key: string;              // 행 고유 키
+  nameGuess: string;        // 추정 입금자명
+  amount: number;
+  raw: string;              // 원문 행
+  memberId: string | null;  // 매칭된(또는 직접 지정한) 멤버
+  autoMatched: boolean;     // 자동으로 체크했는지
+  isWithdraw: boolean;      // 출금 행
+};
 
 export default function DuesPage() {
   const admin = isAdmin();
@@ -67,7 +75,7 @@ export default function DuesPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedRow[] | null>(null);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(new Set()); // 선택된 행 key
   // 암호 걸린 엑셀 대응
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pw, setPw] = useState('');
@@ -162,39 +170,58 @@ export default function DuesPage() {
         rows.push(...arr);
       }
 
+      // 금액이 있는 모든 행을 뽑는다 (이름이 안 맞아도 버리지 않음)
+      const NOISE = /^(입금|출금|거래|잔액|구분|내용|적요|메모|일시|날짜|합계|번호|은행|계좌|타입|비고)$/;
       const found: ParsedRow[] = [];
-      const seen = new Set<string>();
-      for (const row of rows) {
-        if (!Array.isArray(row) || row.length === 0) continue;
-        const cells = row.map(c => (c == null ? '' : String(c)));
+      rows.forEach((row, idx) => {
+        if (!Array.isArray(row) || row.length === 0) return;
+        const cells = row.map(c => (c == null ? '' : String(c).trim()));
         const raw = cells.join(' ').replace(/\s+/g, ' ').trim();
-        if (!raw) continue;
+        if (!raw) return;
 
-        // 이 행에서 가장 긴(구체적인) 멤버 이름 매칭
+        // 금액 후보: 1000 이상 숫자
+        const nums = cells
+          .map(c => Number(c.replace(/[,\s원]/g, '')))
+          .filter(n => Number.isFinite(n) && n >= 1000);
+        if (nums.length === 0) return;               // 헤더/빈 행 제외
+        const amt = amount > 0
+          ? nums.reduce((best, n) => (Math.abs(n - amount) < Math.abs(best - amount) ? n : best), nums[0])
+          : Math.min(...nums);
+
+        // 멤버 이름 매칭 (가장 구체적인 이름 우선)
         let matched: Member | null = null;
         for (const m of members) {
           if (!m.name) continue;
           if (raw.includes(m.name) && (!matched || m.name.length > matched.name.length)) matched = m;
         }
-        if (!matched) continue;
 
-        // 금액: 숫자 셀 중 가장 큰 값 (날짜/잔액과 섞일 수 있어 회비 근처값 우선)
-        const nums = cells
-          .map(c => Number(String(c).replace(/[,\s원]/g, '')))
-          .filter(n => Number.isFinite(n) && n >= 1000);
-        if (nums.length === 0) continue;
-        const amt = amount > 0
-          ? nums.reduce((best, n) => (Math.abs(n - amount) < Math.abs(best - amount) ? n : best), nums[0])
-          : Math.min(...nums);
+        // 입금자명 추정: 숫자/날짜/키워드가 아닌 짧은 한글·영문 텍스트
+        const nameGuess = matched?.name ?? (
+          cells.find(c =>
+            c.length >= 2 && c.length <= 12 &&
+            !/[0-9]/.test(c) &&
+            !NOISE.test(c) &&
+            /[가-힣A-Za-z]/.test(c)
+          ) ?? '(이름 확인 필요)'
+        );
 
-        const key = matched.id;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        found.push({ name: matched.name, memberId: matched.id, amount: amt, raw: raw.slice(0, 60) });
-      }
+        // 출금/이체 나가는 행은 회비 입금이 아니므로 자동 선택에서 제외
+        const isWithdraw = /출금|송금|이체출금|결제/.test(raw) && !/입금/.test(raw);
+
+        found.push({
+          key: `r${idx}`,
+          nameGuess,
+          amount: amt,
+          raw: raw.slice(0, 70),
+          memberId: matched?.id ?? null,
+          autoMatched: !!matched && !isWithdraw,
+          isWithdraw,
+        });
+      });
 
       setParsed(found);
-      setPicked(new Set(found.filter(f => f.memberId).map(f => f.memberId!)));
+      // 자동으로 이름이 맞은 행만 기본 선택
+      setPicked(new Set(found.filter(f => f.autoMatched).map(f => f.key)));
       setPendingFile(null);
       setPw('');
     } catch (err) {
@@ -206,9 +233,22 @@ export default function DuesPage() {
     }
   };
 
+  // 선택된 행 중 멤버가 지정된 것만 납부 처리 (중복 멤버는 한 번만)
+  const pickedMemberIds = Array.from(new Set(
+    (parsed || []).filter(r => picked.has(r.key) && r.memberId).map(r => r.memberId!)
+  ));
+
+  const setRowMember = (key: string, memberId: string) => {
+    if (!parsed) return;
+    setParsed(parsed.map(r => (r.key === key ? { ...r, memberId: memberId || null } : r)));
+    const next = new Set(picked);
+    if (memberId) next.add(key); else next.delete(key);
+    setPicked(next);
+  };
+
   const applyParsed = async () => {
     await ensureDuesMonth(monthKey, amount);
-    for (const id of picked) {
+    for (const id of pickedMemberIds) {
       await setDuesPaid(monthKey, id, true);
     }
     setParsed(null);
@@ -352,12 +392,17 @@ export default function DuesPage() {
             </div>
           )}
 
-          {/* 파싱 결과 */}
+          {/* 파싱 결과: 엑셀의 모든 입금 내역을 그대로 보여준다 */}
           {parsed && (
             <div className="mt-3 border border-gray-100 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
                 <span className="text-[11px] font-bold text-gray-600">
-                  {parsed.length}건 찾음 · {picked.size}건 선택
+                  내역 {parsed.length}건 · 선택 {pickedMemberIds.length}명
+                  {parsed.some(r => !r.memberId) && (
+                    <span className="ml-1 font-medium text-amber-600">
+                      · 이름 확인 {parsed.filter(r => !r.memberId).length}건
+                    </span>
+                  )}
                 </span>
                 <button onClick={() => setParsed(null)} className="text-gray-400 hover:text-gray-600">
                   <X size={14} />
@@ -365,42 +410,67 @@ export default function DuesPage() {
               </div>
               {parsed.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-4 px-3">
-                  멤버 이름과 일치하는 입금 내역을 찾지 못했습니다.<br />
+                  입금 내역을 찾지 못했습니다.<br />
                   아래에서 직접 체크해주세요.
                 </p>
               ) : (
                 <>
-                  <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
+                  <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
                     {parsed.map(r => {
-                      const on = r.memberId ? picked.has(r.memberId) : false;
+                      const on = picked.has(r.key);
                       return (
-                        <button
-                          key={r.memberId ?? r.raw}
-                          onClick={() => {
-                            if (!r.memberId) return;
-                            const next = new Set(picked);
-                            if (next.has(r.memberId)) next.delete(r.memberId); else next.add(r.memberId);
-                            setPicked(next);
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-left"
-                        >
-                          <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
-                            on ? 'bg-[#16a34a]' : 'border border-gray-300'
-                          }`}>
-                            {on && <Check size={11} className="text-white" />}
-                          </span>
-                          <span className="text-sm font-medium text-gray-800 flex-1">{r.name}</span>
-                          <span className="text-xs text-gray-500">{won(r.amount)}</span>
-                        </button>
+                        <div key={r.key} className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                const next = new Set(picked);
+                                if (next.has(r.key)) next.delete(r.key); else next.add(r.key);
+                                setPicked(next);
+                              }}
+                              disabled={!r.memberId}
+                              className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                                on ? 'bg-[#16a34a]' : 'border border-gray-300'
+                              } ${!r.memberId ? 'opacity-40' : ''}`}
+                            >
+                              {on && <Check size={11} className="text-white" />}
+                            </button>
+                            <span className={`text-sm font-medium truncate ${
+                              r.memberId ? 'text-gray-800' : 'text-amber-700'
+                            }`}>
+                              {r.nameGuess}
+                            </span>
+                            {r.isWithdraw && (
+                              <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded shrink-0">
+                                출금
+                              </span>
+                            )}
+                            <span className="flex-1" />
+                            <span className="text-xs text-gray-500 shrink-0">{won(r.amount)}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-1 ml-6 truncate">{r.raw}</p>
+                          {/* 이름이 자동으로 안 맞았으면 직접 지정 */}
+                          {!r.memberId && (
+                            <select
+                              value={r.memberId ?? ''}
+                              onChange={e => setRowMember(r.key, e.target.value)}
+                              className="mt-1.5 ml-6 w-[calc(100%-1.5rem)] text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20"
+                            >
+                              <option value="">이 내역은 건너뛰기</option>
+                              {members.map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
                   <button
                     onClick={applyParsed}
-                    disabled={picked.size === 0}
+                    disabled={pickedMemberIds.length === 0}
                     className="w-full py-2.5 bg-[#1e3a5f] text-white text-sm font-bold disabled:bg-gray-300 transition-colors"
                   >
-                    {picked.size}명 납부 처리
+                    {pickedMemberIds.length}명 납부 처리
                   </button>
                 </>
               )}
