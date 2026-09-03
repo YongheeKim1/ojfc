@@ -22,6 +22,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   FW: '공격',
 };
 
+function formatJoinDate(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function sortMembers(members: Member[]): Member[] {
   return [...members].sort((a, b) => {
     const firstPosA = (a.positions ?? [])[0];
@@ -404,11 +409,15 @@ export default function MembersPage() {
 // ── 선수 승률 분석 패널 (쿼터별 결과 기반) ──
 function AnalysisPanel({ memberId, matches, members }: { memberId: string; matches: Match[]; members: Member[] }) {
   const stats = computePlayerStats(memberId, matches);
+  const joined = members.find(m => m.id === memberId)?.createdAt;
   const guests = getGuests();
 
   if (stats.totalPlayed === 0) {
     return (
       <div className="px-5 pb-4 bg-gray-50/70">
+        {joined && (
+          <p className="text-[10px] text-gray-400 pt-1">가입일 {formatJoinDate(joined)}</p>
+        )}
         <p className="text-[11px] text-gray-400 py-3 text-center">
           분석할 경기 기록이 없습니다.<br />
           매치 결과(점수)를 입력하면 분석이 시작됩니다.
@@ -426,6 +435,10 @@ function AnalysisPanel({ memberId, matches, members }: { memberId: string; match
 
   return (
     <div className="px-5 pb-4 pt-1 bg-gray-50/70 space-y-3">
+      {joined && (
+        <p className="text-[10px] text-gray-400">가입일 {formatJoinDate(joined)}</p>
+      )}
+
       {/* 데이터 출처 안내 */}
       {isApprox && (
         <p className="text-[9px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">

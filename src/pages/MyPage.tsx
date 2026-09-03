@@ -89,6 +89,9 @@ export default function MyPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">{latest.name}</h1>
+            {latest.createdAt && (
+              <p className="text-[11px] text-blue-200 mt-0.5">{formatDateTime(latest.createdAt)} 가입</p>
+            )}
             <div className="flex flex-wrap gap-1 mt-1">
               {(latest.positions ?? []).map(pos => (
                 <span key={pos} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${getPositionColor(pos)}`}>{pos}</span>
