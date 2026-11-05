@@ -23,6 +23,9 @@ import {
   updateMatch,
   getPlayerInfo,
   FORMATIONS,
+  FORMATIONS_BY_SIZE,
+  TEAM_SIZES,
+  getFormationSize,
   generateQuarterLineups,
   subscribe,
   isAdmin,
@@ -385,6 +388,12 @@ export default function LineupPage() {
     match && (match.status === 'lineup' || match.status === 'playing' || (match.status === 'done' && match.quarters?.length > 0) || (match.status === 'voting' && match.quarters?.length > 0)) ? 'lineup' : 'select'
   );
   const [formation, setFormation] = useState(match?.formation ?? '4-2-3-1');
+  // 한 팀 인원수. 포메이션 이름에 인원이 들어있어서 따로 저장하지 않고 역산합니다.
+  const teamSize = getFormationSize(formation);
+  const setTeamSize = (size: number) => {
+    const list = FORMATIONS_BY_SIZE[size] || [];
+    if (list.length > 0) setFormation(list[0]);
+  };
   const [smartMode, setSmartMode] = useState(true); // 지난 경기 데이터 기반 배치
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     // Derive from existing quarters if available
@@ -454,8 +463,8 @@ export default function LineupPage() {
 
   // Player count info
   const selectedCount = selectedIds.size;
-  const playingCount = Math.min(11, selectedCount);
-  const restingCount = Math.max(0, selectedCount - 11);
+  const playingCount = Math.min(teamSize, selectedCount);
+  const restingCount = Math.max(0, selectedCount - teamSize);
 
   // Toggle player selection
   const togglePlayer = useCallback((id: string) => {
@@ -851,7 +860,7 @@ export default function LineupPage() {
 
   // ─── Step A: Player Selection + Formation ───
   if (step === 'select' && status === 'scheduled') {
-    const minPlayers = 11;
+    const minPlayers = teamSize;
 
     return (
       <div className="max-w-[480px] mx-auto">
@@ -873,6 +882,29 @@ export default function LineupPage() {
         </div>
 
         <div className="px-4 py-4 space-y-4">
+          {/* 인원수 — 10 vs 10 처럼 인원이 바뀔 때 선택 */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">인원수 (한 팀)</label>
+            <div className="grid grid-cols-6 gap-1.5">
+              {TEAM_SIZES.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setTeamSize(n)}
+                  className={`py-2 rounded-xl text-sm font-bold border transition-colors ${
+                    teamSize === n
+                      ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              {teamSize} vs {teamSize} · 골키퍼 포함
+            </p>
+          </div>
+
           {/* Formation selector */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">포메이션</label>
@@ -882,7 +914,7 @@ export default function LineupPage() {
                 onChange={(e) => setFormation(e.target.value)}
                 className="w-full appearance-none bg-white border border-gray-300 rounded-xl px-4 py-3 pr-10 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
               >
-                {Object.keys(FORMATIONS).map((f) => (
+                {(FORMATIONS_BY_SIZE[teamSize] || Object.keys(FORMATIONS)).map((f) => (
                   <option key={f} value={f}>
                     {f}
                   </option>

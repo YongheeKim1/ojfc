@@ -562,6 +562,101 @@ export const FORMATIONS: Record<string, FormationSlot[]> = {
   ],
 };
 
+// ──────────────────────────────────────────
+// 인원수별 포메이션
+//
+// 조기축구는 모인 인원에 따라 11 vs 11, 10 vs 10, 8 vs 8 로 바뀝니다.
+// 위 4개(11명)는 손으로 좌표를 맞춰둔 것이고, 나머지 인원수는
+// 포메이션 이름("4-3-2")에서 줄 구성을 읽어 좌표를 계산합니다.
+// ──────────────────────────────────────────
+
+// 한 줄에 k명을 가로로 고르게 배치
+function lineX(k: number): number[] {
+  if (k <= 1) return [50];
+  const margin = k === 2 ? 38 : k === 3 ? 22 : k === 4 ? 15 : 10;
+  const step = (100 - margin * 2) / (k - 1);
+  return Array.from({ length: k }, (_, i) => Math.round(margin + step * i));
+}
+
+// 줄 번호 → 세로 위치 (수비 78 → 공격 22)
+function lineY(index: number, lines: number): number {
+  if (lines <= 1) return 50;
+  return Math.round(78 - (index * (78 - 22)) / (lines - 1));
+}
+
+function defLabels(k: number): string[] {
+  if (k <= 3) return Array(k).fill('CB');
+  if (k === 4) return ['LB', 'CB', 'CB', 'RB'];
+  return ['LB', 'CB', 'CB', 'CB', 'RB'];
+}
+
+function midLabels(k: number, attacking: boolean): string[] {
+  const core = attacking ? 'CAM' : 'CM';
+  if (k === 1) return [core];
+  if (k === 2) return [core, core];
+  if (k === 3) return ['LM', core, 'RM'];
+  if (k === 4) return ['LM', 'CM', 'CM', 'RM'];
+  return ['LM', 'CM', core, 'CM', 'RM'];
+}
+
+function fwdLabels(k: number): string[] {
+  if (k === 1) return ['ST'];
+  if (k === 2) return ['ST', 'ST'];
+  if (k === 3) return ['LW', 'ST', 'RW'];
+  return ['LW', 'ST', 'ST', 'RW'];
+}
+
+// "4-3-2" → GK + 수비 4 + 미드 3 + 공격 2
+function buildFormation(name: string): FormationSlot[] {
+  const lines = name.split('-').map(Number).filter(n => Number.isFinite(n) && n > 0);
+  const slots: FormationSlot[] = [{ id: 'GK', label: 'GK', x: 50, y: 92 }];
+  const counter: Record<string, number> = {};
+
+  lines.forEach((k, li) => {
+    const isLast = li === lines.length - 1;
+    const midCount = lines.length - 2; // 수비/공격을 뺀 미드 줄 수
+    const labels = li === 0
+      ? defLabels(k)
+      : isLast
+        ? fwdLabels(k)
+        // 미드가 두 줄이면 뒤쪽은 수비형(CDM), 앞쪽은 공격형(CAM)
+        : midLabels(k, midCount > 1 && li === lines.length - 2);
+
+    const xs = lineX(k);
+    const y = lineY(li, lines.length);
+    labels.forEach((label, i) => {
+      counter[label] = (counter[label] || 0) + 1;
+      slots.push({ id: `${label}${counter[label]}`, label, x: xs[i], y });
+    });
+  });
+
+  return slots;
+}
+
+// 인원수(골키퍼 포함) → 쓸 수 있는 포메이션 이름
+export const FORMATIONS_BY_SIZE: Record<number, string[]> = {
+  11: ['4-3-3', '4-4-2', '3-5-2', '4-2-3-1', '4-5-1', '3-4-3'],
+  10: ['4-3-2', '3-4-2', '4-4-1', '3-3-3'],
+  9: ['3-3-2', '4-3-1', '3-2-3'],
+  8: ['3-2-2', '2-3-2', '3-3-1'],
+  7: ['2-3-1', '3-2-1', '2-2-2'],
+  6: ['2-2-1', '1-2-2'],
+};
+
+export const TEAM_SIZES = [11, 10, 9, 8, 7, 6];
+
+// 손으로 맞춰둔 11명 포메이션은 그대로 두고, 나머지만 계산해서 채웁니다.
+for (const names of Object.values(FORMATIONS_BY_SIZE)) {
+  for (const name of names) {
+    if (!FORMATIONS[name]) FORMATIONS[name] = buildFormation(name);
+  }
+}
+
+/** 포메이션 이름 → 한 팀 인원수 (GK 포함) */
+export function getFormationSize(formation: string): number {
+  return (FORMATIONS[formation] || FORMATIONS['4-2-3-1']).length;
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -727,12 +822,13 @@ export function generateQuarterLineups(
   smart = false
 ): { playing: Record<string, string>; resting: string[] }[] {
   const total = playerIds.length;
+  const teamSize = getFormationSize(formation); // 11 vs 11 일 수도, 10 vs 10 일 수도 있음
   // smart=true면 지난 쿼터 결과 기반 최적 배치, 아니면 기존 랜덤 배치
   const assign = (ids: string[]) =>
     smart ? autoAssignLineupSmart(ids, formation, matchesCache) : autoAssignLineup(ids, formation);
 
-  // 11명 이하: 전원 출전, 배치 못 하면 휴식
-  if (total <= 11) {
+  // 한 팀 인원 이하: 전원 출전, 배치 못 하면 휴식
+  if (total <= teamSize) {
     return [0, 1, 2, 3].map(() => {
       const playing = assign(playerIds);
       const assignedIds = new Set(Object.values(playing));
@@ -741,8 +837,8 @@ export function generateQuarterLineups(
     });
   }
 
-  // 12명 이상: 쿼터별 11명 필드 + 나머지 휴식, 공평 분배
-  const minQ = (total * 3 <= 44) ? 3 : 2; // 최소 출전 쿼터
+  // 초과 인원: 쿼터별로 teamSize 명만 필드 + 나머지 휴식, 공평 분배
+  const minQ = (total * 3 <= teamSize * 4) ? 3 : 2; // 최소 출전 쿼터
 
   const playCounts: Record<string, number> = {};
   playerIds.forEach(id => { playCounts[id] = 0; });
@@ -752,7 +848,7 @@ export function generateQuarterLineups(
   // Greedy: 출전 적은 선수 우선
   for (let qi = 0; qi < 4; qi++) {
     const sorted = shuffle([...playerIds]).sort((a, b) => playCounts[a] - playCounts[b]);
-    const selected = sorted.slice(0, 11);
+    const selected = sorted.slice(0, teamSize);
     quarterAssignments[qi] = selected;
     selected.forEach(id => { playCounts[id]++; });
   }
