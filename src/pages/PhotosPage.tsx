@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Images, Upload, X, Trash2, Send, MessageCircle, Loader2, HardDrive, ChevronLeft, ChevronRight,
+  Images, Upload, X, Trash2, Send, MessageCircle, Loader2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import type { Photo, PhotoComment } from '../lib/types';
 import {
-  preparePhoto, uploadPhoto, fetchPhotos, fetchPhotoData, fetchUsage, deletePhoto, canDeletePhoto,
+  preparePhoto, uploadPhoto, fetchPhotos, fetchPhotoData, fetchPhotoCount, deletePhoto, canDeletePhoto,
   subscribeComments, addComment, deleteComment, canDeleteComment,
-  formatBytes, PHOTO_BUDGET_BYTES, type PreparedPhoto,
+  formatBytes, MAX_PHOTOS, type PreparedPhoto,
 } from '../lib/photos';
 import { getCurrentUser } from '../lib/store';
 
@@ -30,7 +30,7 @@ export default function PhotosPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [usage, setUsage] = useState<{ bytes: number; count: number } | null>(null);
+  const [count, setCount] = useState<number | null>(null);
 
   // 업로드
   const fileRef = useRef<HTMLInputElement>(null);
@@ -50,7 +50,7 @@ export default function PhotosPage() {
       setPhotos(page.photos);
       setCursor(page.cursor);
       setHasMore(page.hasMore);
-      setUsage(await fetchUsage());
+      setCount(await fetchPhotoCount());
     } catch (err) {
       setError(err instanceof Error ? err.message : '사진을 불러오지 못했습니다');
     } finally {
@@ -91,9 +91,12 @@ export default function PhotosPage() {
 
   const handleUpload = async () => {
     if (pending.length === 0) return;
-    const addBytes = pending.reduce((s, p) => s + p.bytes, 0);
-    if (usage && usage.bytes + addBytes > PHOTO_BUDGET_BYTES) {
-      setError('저장 공간이 부족합니다. 오래된 사진을 정리해주세요.');
+    // 1,500장을 넘기면 올릴 수 없습니다
+    if (count !== null && count + pending.length > MAX_PHOTOS) {
+      const left = Math.max(0, MAX_PHOTOS - count);
+      setError(left === 0
+        ? `사진은 최대 ${MAX_PHOTOS.toLocaleString()}장까지 올릴 수 있습니다. 오래된 사진을 삭제해주세요.`
+        : `${left}장만 더 올릴 수 있습니다. 선택한 사진을 줄여주세요.`);
       return;
     }
     setUploading(true);
@@ -102,7 +105,7 @@ export default function PhotosPage() {
       const created: Photo[] = [];
       for (const p of pending) created.push(await uploadPhoto(p, caption));
       setPhotos(prev => [...created.reverse(), ...prev]);
-      setUsage(prev => prev ? { bytes: prev.bytes + addBytes, count: prev.count + created.length } : prev);
+      setCount(prev => (prev === null ? prev : prev + created.length));
       setPending([]);
       setCaption('');
     } catch (err) {
@@ -117,54 +120,26 @@ export default function PhotosPage() {
     try {
       await deletePhoto(photo);
       setPhotos(prev => prev.filter(p => p.id !== photo.id));
-      setUsage(prev => prev ? { bytes: Math.max(0, prev.bytes - photo.bytes), count: prev.count - 1 } : prev);
+      setCount(prev => (prev === null ? prev : Math.max(0, prev - 1)));
       setOpenIndex(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '삭제에 실패했습니다');
     }
   };
 
-  const usedPct = usage ? Math.min(100, (usage.bytes / PHOTO_BUDGET_BYTES) * 100) : 0;
-  // 지금까지 올린 사진의 평균 용량으로 남은 장수를 추정합니다.
-  const avgBytes = usage && usage.count > 0 ? usage.bytes / usage.count : 260 * 1024;
-  const remaining = usage ? Math.max(0, Math.floor((PHOTO_BUDGET_BYTES - usage.bytes) / avgBytes)) : null;
+  const isFull = count !== null && count >= MAX_PHOTOS;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
       {/* 헤더 */}
       <div className="bg-gradient-to-br from-[#1e3a5f] to-[#152d4a] text-white px-5 pt-10 pb-6 rounded-b-3xl shadow-lg">
-        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-          <Images size={20} /> 오지FC 사진첩
-        </h1>
+        <h1 className="text-xl font-bold tracking-tight">오지FC 사진첩</h1>
         <p className="text-blue-200 text-sm mt-1">
-          {usage ? `사진 ${usage.count}장` : '불러오는 중...'}
+          {count === null ? '불러오는 중...' : `사진 ${count.toLocaleString()} / ${MAX_PHOTOS.toLocaleString()}장`}
         </p>
       </div>
 
       <div className="px-4 -mt-3 space-y-4">
-        {/* 저장 공간 */}
-        {usage && (
-          <div className="bg-white rounded-2xl shadow-sm p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
-                <HardDrive size={13} className="text-[#1e3a5f]" /> 저장 공간
-              </span>
-              <span className="text-[11px] text-gray-500 font-medium">
-                {formatBytes(usage.bytes)} / {formatBytes(PHOTO_BUDGET_BYTES)}
-              </span>
-            </div>
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${usedPct > 85 ? 'bg-red-500' : 'bg-[#16a34a]'}`}
-                style={{ width: `${Math.max(1, usedPct)}%` }}
-              />
-            </div>
-            <p className="text-[11px] text-gray-400 mt-1.5">
-              앞으로 약 {remaining?.toLocaleString()}장 더 올릴 수 있습니다 · 무료 요금제 한도 안에서 운영됩니다
-            </p>
-          </div>
-        )}
-
         {/* 업로드 */}
         <div className="bg-white rounded-2xl shadow-sm p-4">
           <input
@@ -177,13 +152,20 @@ export default function PhotosPage() {
           />
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={preparing || uploading}
+            disabled={preparing || uploading || isFull}
             className="w-full py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-bold hover:bg-emerald-100 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
           >
             {preparing
               ? <><Loader2 size={15} className="animate-spin" /> 사진 줄이는 중...</>
-              : <><Upload size={15} /> 사진 올리기</>}
+              : isFull
+                ? <>사진첩이 가득 찼습니다</>
+                : <><Upload size={15} /> 사진 올리기</>}
           </button>
+          {isFull && (
+            <p className="text-[11px] text-red-600 font-medium mt-2 text-center">
+              최대 {MAX_PHOTOS.toLocaleString()}장까지 올릴 수 있습니다. 오래된 사진을 삭제한 뒤 올려주세요.
+            </p>
+          )}
 
           {pending.length > 0 && (
             <div className="mt-3">

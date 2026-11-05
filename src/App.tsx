@@ -244,7 +244,12 @@ export default function App() {
         className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-100 px-4 pb-2.5 flex items-center justify-between"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.625rem)' }}
       >
-        <span className="text-sm font-bold text-[#1e3a5f]">오지FC</span>
+        <button
+          onClick={() => navigate('/')}
+          className="text-sm font-bold text-[#1e3a5f] px-1 -ml-1 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+        >
+          오지FC
+        </button>
         <div className="relative">
           <button
             onClick={() => setShowLogoutMenu(!showLogoutMenu)}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Calendar, Star, Plus, Check, Megaphone, Images, ChevronRight, MessageCircle } from 'lucide-react';
+import { Trophy, Star, Check, Megaphone, Images, ChevronRight, MessageCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getMembers, getMatches, getCurrentUser, subscribe, getGuestsByMatch, updateMatch, getAnnouncements } from '../lib/store';
 import { getPositionColor } from '../lib/types';
@@ -77,8 +77,6 @@ export default function HomePage() {
     setSelectedVote(null);
     setVoteSubmitting(false);
   };
-
-  const latestMatch = matches.length > 0 ? matches[0] : null;
 
   // 사진첩 미리보기 — 최신 몇 장의 썸네일만 받아옵니다 (원본은 사진첩에서)
   const [recentPhotos, setRecentPhotos] = useState<Photo[] | null>(null);
@@ -333,29 +331,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Latest match link */}
-        {latestMatch && latestMatch.status !== 'done' && (
-          <Link
-            to={`/match`}
-            className="block w-full bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-800 rounded-2xl shadow-sm p-4 text-center transition-colors border border-gray-200"
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Calendar className="w-4 h-4 text-[#1e3a5f]" />
-              <span className="text-sm font-semibold">진행 중인 매치 보기</span>
-            </div>
-          </Link>
-        )}
-
-        {/* Quick action */}
-        <Link
-          to="/match"
-          className="block w-full bg-[#16a34a] hover:bg-green-600 active:bg-green-700 text-white rounded-2xl shadow-sm p-4 text-center transition-colors"
-        >
-          <div className="flex items-center justify-center gap-2">
-            <Plus className="w-5 h-5" />
-            <span className="text-sm font-bold">새 매치 만들기</span>
-          </div>
-        </Link>
       </div>
     </div>
   );

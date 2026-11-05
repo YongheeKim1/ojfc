@@ -2,17 +2,19 @@ import { db } from './firebase';
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot,
   query, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData, increment, updateDoc,
+  getCountFromServer,
 } from 'firebase/firestore';
 import type { Photo, PhotoComment } from './types';
 import { getCurrentUser, isAdmin } from './store';
 
 // ──────────────────────────────────────────
-// 용량 한도
+// 장수 한도
 //
-// 무료(Spark) 요금제의 Firestore 저장 용량은 1 GiB 입니다.
-// 매치·멤버 등 다른 데이터가 쓸 몫을 남겨두고 사진에는 800 MiB 만 씁니다.
+// 무료(Spark) 요금제의 저장 용량은 1 GiB 입니다.
+// 사진 한 장이 최대 약 430 KB 이므로 1,500장이면 넉넉히 한도 안에 들어옵니다.
+// 용량을 따지지 않고 장수로만 막아, 한도를 넘길 일이 없게 합니다.
 // ──────────────────────────────────────────
-export const PHOTO_BUDGET_BYTES = 800 * 1024 * 1024;
+export const MAX_PHOTOS = 1500;
 
 /** Firestore 문서 하나의 최대 크기는 1 MiB — 여유를 두고 자릅니다 */
 const MAX_DOC_BYTES = 900 * 1024;
@@ -137,12 +139,13 @@ export async function fetchPhotoData(photoId: string): Promise<string | null> {
   return snap.exists() ? (snap.data().data as string) : null;
 }
 
-/** 지금까지 쓴 저장 용량 (바이트) */
-export async function fetchUsage(): Promise<{ bytes: number; count: number }> {
-  const snap = await getDocs(collection(db, 'photos'));
-  let bytes = 0;
-  snap.docs.forEach(d => { bytes += (d.data().bytes as number) || 0; });
-  return { bytes, count: snap.size };
+/**
+ * 사진 장수만 세어 옵니다.
+ * 문서를 전부 읽지 않고 서버에서 개수만 받아오므로 읽기 한도를 거의 쓰지 않습니다.
+ */
+export async function fetchPhotoCount(): Promise<number> {
+  const snap = await getCountFromServer(collection(db, 'photos'));
+  return snap.data().count;
 }
 
 // ──────────────────────────────────────────
@@ -152,6 +155,11 @@ export async function fetchUsage(): Promise<{ bytes: number; count: number }> {
 export async function uploadPhoto(prepared: PreparedPhoto, caption: string): Promise<Photo> {
   const user = getCurrentUser();
   if (!user) throw new Error('로그인이 필요합니다');
+
+  // 화면에서 걸러도 여러 명이 동시에 올리면 넘을 수 있어 여기서 한 번 더 확인합니다.
+  if (await fetchPhotoCount() >= MAX_PHOTOS) {
+    throw new Error(`사진은 최대 ${MAX_PHOTOS.toLocaleString()}장까지 올릴 수 있습니다. 오래된 사진을 삭제해주세요.`);
+  }
 
   const id = genId();
   const photo: Photo = {
