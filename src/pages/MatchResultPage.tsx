@@ -252,6 +252,67 @@ export default function MatchResultPage() {
     }
   };
 
+  // 경기 결과 공유 — 결과 이미지 + 글 (POM 투표 안내 포함)
+  const [sharingId, setSharingId] = useState<string | null>(null);
+
+  const handleShareResult = async (m: Match) => {
+    setSharingId(m.id);
+    try {
+      const url = window.location.origin + import.meta.env.BASE_URL + '#/match';
+      const dateStr = new Date(m.date).toLocaleDateString('ko-KR');
+      const guests = getGuestsByMatch(m.id);
+      const opponent = m.opponentName?.trim() || '상대팀';
+
+      // 이름을 못 찾는 기록(삭제된 용병 등)은 빼고 보여줍니다
+      const goalLines = (m.goals || [])
+        .map((g) => {
+          const info = getPlayerInfo(members, guests, g.playerId);
+          return info ? `${g.quarter}Q ${info.name}` : null;
+        })
+        .filter((x): x is string => x !== null);
+
+      const pomIds = m.pomIds?.length ? m.pomIds : m.pomId ? [m.pomId] : [];
+      const pomNames = pomIds
+        .map((pid) => getPlayerInfo(members, guests, pid)?.name)
+        .filter((x): x is string => !!x);
+
+      const verdict = m.scoreA > m.scoreB ? '승리' : m.scoreA < m.scoreB ? '패배' : '무승부';
+      const lines = [
+        `${m.title} 결과`,
+        '',
+        `오지FC ${m.scoreA} : ${m.scoreB} ${opponent}  (${verdict})`,
+        `${dateStr}${m.location ? ' · ' + m.location : ''}`,
+      ];
+      if (goalLines.length > 0) lines.push('', `득점: ${goalLines.join(', ')}`);
+      if (pomNames.length > 0) {
+        lines.push('', `${pomNames.length > 1 ? '공동 POM' : 'POM'}: ${pomNames.join(', ')}`);
+      } else {
+        lines.push('', 'POM 투표하기 👉 오지FC 앱에서 투표해주세요!');
+      }
+      const text = lines.join('\n');
+
+      const { buildResultCard, shareResult } = await import('../lib/resultCard');
+      const blob = await buildResultCard({
+        title: m.title,
+        dateText: dateStr,
+        location: m.location,
+        teamName: '오지FC',
+        opponentName: opponent,
+        scoreA: m.scoreA,
+        scoreB: m.scoreB,
+        goals: goalLines,
+        pomNames,
+      });
+      const result = await shareResult(blob, text, url);
+      if (result === 'copied') alert('결과 이미지를 저장하고 글을 복사했습니다. 카톡에 붙여넣기 하세요!');
+    } catch (err) {
+      console.error(err);
+      alert('공유에 실패했습니다.');
+    } finally {
+      setSharingId(null);
+    }
+  };
+
   const handleDeleteMatch = async (matchId: string) => {
     if (!admin) return;
     if (!confirm('정말 이 매치를 삭제하시겠습니까?')) return;
@@ -604,6 +665,11 @@ export default function MatchResultPage() {
                             className="mt-3 w-full py-2 bg-[#1e3a5f] text-white rounded-lg text-xs font-bold hover:bg-[#16304a] transition-colors flex items-center justify-center gap-1.5">
                             <Check size={14} /> 점수 저장
                           </button>
+                          <button onClick={() => handleShareResult(match)}
+                            disabled={sharingId === match.id}
+                            className="mt-2 w-full py-2 bg-[#16a34a] text-white rounded-lg text-xs font-bold hover:bg-green-600 disabled:bg-gray-300 transition-colors flex items-center justify-center gap-1.5">
+                            <Share2 size={14} /> {sharingId === match.id ? '만드는 중...' : '경기 결과 공유'}
+                          </button>
                         </div>
                         )}
 
@@ -792,9 +858,17 @@ export default function MatchResultPage() {
                               className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-yellow-600 transition-colors"
                               title="POM 결과 공유"
                             >
-                              <Share2 size={12} />
+                              <Trophy size={12} />
                             </button>
                           )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleShareResult(match); }}
+                            disabled={sharingId === match.id}
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-[#16a34a] disabled:opacity-40 transition-colors"
+                            title="경기 결과 공유"
+                          >
+                            <Share2 size={12} />
+                          </button>
                           {admin && (
                             <button onClick={(e) => { e.stopPropagation(); handleDeleteMatch(match.id); }}
                               className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 transition-colors">

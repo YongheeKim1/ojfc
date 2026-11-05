@@ -169,3 +169,42 @@ export interface Match {
   votingStartedAt?: number; // 투표 시작 시간
   status: 'scheduled' | 'lineup' | 'playing' | 'voting' | 'done';
 }
+
+// ──────────────────────────────────────────
+// 사진첩
+//
+// Firebase Cloud Storage 는 유료(Blaze) 전환이 필요해서 쓰지 않습니다.
+// 대신 이미지를 줄여서 Firestore 문서에 직접 담습니다.
+// 문서 하나는 1MB 를 넘을 수 없어서 원본은 따로 저장하고,
+// 목록에는 작은 썸네일만 실어 보냅니다.
+// ──────────────────────────────────────────
+
+/** 사진 목록용 문서 (photos/{id}) — 썸네일만 포함해 가볍게 */
+export interface Photo {
+  id: string;
+  caption?: string;
+  uploaderId: string;
+  uploaderName: string;
+  createdAt: number;
+  thumb: string;        // 작은 미리보기 (data URL)
+  width: number;        // 원본 비율 (그리드 레이아웃용)
+  height: number;
+  bytes: number;        // 썸네일 + 원본 합계 (용량 계산용)
+  commentCount?: number;
+}
+
+/** 원본 이미지 (photoData/{id}) — 사진을 열 때만 불러옵니다 */
+export interface PhotoData {
+  id: string;
+  data: string;         // data URL
+}
+
+/** 댓글 (photos/{id}/comments/{commentId}) */
+export interface PhotoComment {
+  id: string;
+  photoId: string;
+  memberId: string;
+  name: string;
+  text: string;
+  createdAt: number;
+}

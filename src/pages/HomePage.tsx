@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Users, Calendar, Star, Plus, Swords, Check, Megaphone } from 'lucide-react';
+import { Trophy, Calendar, Star, Plus, Check, Megaphone, Images, ChevronRight, MessageCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getMembers, getMatches, getCurrentUser, subscribe, getGuestsByMatch, updateMatch, getAnnouncements } from '../lib/store';
 import { getPositionColor } from '../lib/types';
-import type { Member, Match } from '../lib/types';
+import type { Member, Match, Photo } from '../lib/types';
+import { fetchRecentPhotos } from '../lib/photos';
+import { computePlayerStats } from '../lib/stats';
 
 // 매치 라인업에 출전한 선수 ID 추출 (POM 투표 후보)
 function getMatchPlayerIds(match: Match): string[] {
@@ -78,24 +80,43 @@ export default function HomePage() {
 
   const latestMatch = matches.length > 0 ? matches[0] : null;
 
+  // 사진첩 미리보기 — 최신 몇 장의 썸네일만 받아옵니다 (원본은 사진첩에서)
+  const [recentPhotos, setRecentPhotos] = useState<Photo[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchRecentPhotos(4)
+      .then(list => { if (alive) setRecentPhotos(list); })
+      .catch(() => { if (alive) setRecentPhotos([]); });
+    return () => { alive = false; };
+  }, []);
+
+  // 내 페이지 미리보기 — 출전/골/POM/승률 요약
+  const mySummary = (() => {
+    if (!currentUser) return null;
+    const latest = members.find(m => m.id === currentUser.id) ?? currentUser;
+    const stats = computePlayerStats(currentUser.id, matches);
+    const games = matches.filter(m =>
+      ['done', 'voting', 'playing'].includes(m.status) &&
+      (m.quarters || []).some(q => Object.values(q.playing || {}).includes(currentUser.id))
+    ).length;
+    const goals = matches.reduce(
+      (n, m) => n + (m.goals || []).filter(g => g.playerId === currentUser.id).length, 0
+    );
+    return {
+      name: latest.name,
+      stats: [
+        { label: '출전', value: games },
+        { label: '골', value: goals },
+        { label: 'POM', value: latest.pomCount || 0 },
+        { label: '승률', value: stats.totalPlayed ? `${Math.round(stats.overallRate * 100)}%` : '-' },
+      ],
+    };
+  })();
+
   const pomRanking = [...members]
     .filter(m => m.pomCount > 0)
     .sort((a, b) => b.pomCount - a.pomCount)
     .slice(0, 5);
-
-  const getMemberName = (id: string) =>
-    members.find(m => m.id === id)?.name ?? '알 수 없음';
-
-  const formatDate = (ts: number) => {
-    const d = new Date(ts);
-    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-  };
-
-  const now = new Date();
-  const thisMonthMatches = matches.filter(m => {
-    const d = new Date(m.date);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  });
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
@@ -198,95 +219,70 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Stats cards */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-2xl shadow-sm p-4 text-center">
-            <div className="w-9 h-9 mx-auto mb-2 bg-blue-50 rounded-xl flex items-center justify-center">
-              <Users className="w-4.5 h-4.5 text-[#1e3a5f]" />
-            </div>
-            <p className="text-xl font-bold text-gray-800">{members.length}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">총 멤버</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-sm p-4 text-center">
-            <div className="w-9 h-9 mx-auto mb-2 bg-green-50 rounded-xl flex items-center justify-center">
-              <Swords className="w-4.5 h-4.5 text-[#16a34a]" />
-            </div>
-            <p className="text-xl font-bold text-gray-800">{matches.length}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">총 매치</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-sm p-4 text-center">
-            <div className="w-9 h-9 mx-auto mb-2 bg-yellow-50 rounded-xl flex items-center justify-center">
-              <Calendar className="w-4.5 h-4.5 text-yellow-600" />
-            </div>
-            <p className="text-xl font-bold text-gray-800">{thisMonthMatches.length}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">이번 달 매치</p>
-          </div>
-        </div>
-
-        {/* Latest match */}
-        {latestMatch ? (
-          <div className="bg-white rounded-2xl shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Calendar className="w-4 h-4 text-[#1e3a5f]" />
-              <h2 className="text-sm font-bold text-gray-700">최근 매치</h2>
-              <span className="ml-auto text-xs text-gray-400">{formatDate(latestMatch.date)}</span>
-            </div>
-            <div className="flex items-center justify-center bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4 gap-4">
-              <div className="text-center flex-1">
-                <p className="text-xs text-[#1e3a5f] font-bold mb-1">A팀</p>
-                <p className="text-3xl font-extrabold text-[#1e3a5f]">{latestMatch.scoreA}</p>
+        {/* 내 페이지 미리보기 — 한 줄 요약, 누르면 내 페이지로 */}
+        {mySummary && (
+          <Link
+            to="/me"
+            className="block bg-white rounded-2xl shadow-sm p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#1e3a5f] text-white font-bold flex items-center justify-center shrink-0">
+                {mySummary.name.charAt(0)}
               </div>
-              <div className="px-3">
-                <span className="text-sm font-bold text-gray-400">VS</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-gray-800 truncate">{mySummary.name}</p>
+                <p className="text-[11px] text-gray-400">내 기록 보기</p>
               </div>
-              <div className="text-center flex-1">
-                <p className="text-xs text-[#16a34a] font-bold mb-1">B팀</p>
-                <p className="text-3xl font-extrabold text-[#16a34a]">{latestMatch.scoreB}</p>
+              <div className="flex items-center gap-3.5 shrink-0">
+                {mySummary.stats.map(st => (
+                  <div key={st.label} className="text-center">
+                    <p className="text-base font-extrabold text-gray-800 leading-none">{st.value}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">{st.label}</p>
+                  </div>
+                ))}
               </div>
+              <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
             </div>
-            {(latestMatch.pomIds?.length || latestMatch.pomId) && (
-              <div className="mt-3 flex items-center gap-2 text-sm bg-yellow-50 rounded-lg px-3 py-2">
-                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                <span className="text-gray-500">POM:</span>
-                <span className="font-bold text-gray-700">
-                  {(latestMatch.pomIds?.length ? latestMatch.pomIds : [latestMatch.pomId!])
-                    .map(pid => getMemberName(pid)).join(' · ')}
-                </span>
-              </div>
-            )}
-            <div className="mt-2">
-              <span
-                className={`inline-block text-xs px-2.5 py-1 rounded-full font-medium ${
-                  latestMatch.status === 'done'
-                    ? 'bg-gray-100 text-gray-500'
-                    : latestMatch.status === 'playing'
-                      ? 'bg-green-100 text-green-700'
-                      : latestMatch.status === 'voting'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-blue-100 text-blue-700'
-                }`}
-              >
-                {latestMatch.status === 'done'
-                  ? '종료'
-                  : latestMatch.status === 'playing'
-                    ? '경기 중'
-                    : latestMatch.status === 'voting'
-                      ? '투표 중'
-                      : '라인업'}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
-            <div className="w-16 h-16 mx-auto mb-3 bg-gray-50 rounded-full flex items-center justify-center">
-              <Swords className="w-7 h-7 text-gray-300" />
-            </div>
-            <h2 className="text-base font-bold text-gray-700 mb-1">아직 매치가 없습니다</h2>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              첫 번째 매치를 만들어보세요!
-            </p>
-          </div>
+          </Link>
         )}
+
+        {/* 사진첩 미리보기 */}
+        <div className="bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Images className="w-4 h-4 text-[#1e3a5f]" />
+            <h2 className="text-sm font-bold text-gray-700">오지FC 사진첩</h2>
+            <Link to="/photos" className="ml-auto text-xs text-gray-400 flex items-center gap-0.5 hover:text-gray-600">
+              더보기 <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          {recentPhotos === null ? (
+            <div className="grid grid-cols-4 gap-1.5">
+              {[0, 1, 2, 3].map(i => <div key={i} className="aspect-square rounded-lg bg-gray-100 animate-pulse" />)}
+            </div>
+          ) : recentPhotos.length === 0 ? (
+            <Link to="/photos" className="block text-center py-6">
+              <Images className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+              <p className="text-xs text-gray-400">아직 사진이 없습니다 · 첫 사진을 올려보세요</p>
+            </Link>
+          ) : (
+            <div className="grid grid-cols-4 gap-1.5">
+              {recentPhotos.slice(0, 4).map(photo => (
+                <Link
+                  key={photo.id}
+                  to="/photos"
+                  className="relative aspect-square rounded-lg overflow-hidden bg-gray-100"
+                >
+                  <img src={photo.thumb} alt={photo.caption || ''} className="w-full h-full object-cover" />
+                  {!!photo.commentCount && (
+                    <span className="absolute bottom-1 right-1 flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-black/55 text-white text-[9px] font-bold">
+                      <MessageCircle className="w-2.5 h-2.5" /> {photo.commentCount}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* POM Ranking */}
         {pomRanking.length > 0 && (

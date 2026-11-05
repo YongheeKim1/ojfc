@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone, User as UserIcon, Wallet } from 'lucide-react';
+import { Home, Users, LayoutGrid, Trophy, UserPlus, LogOut, Megaphone, User as UserIcon, Wallet, Images } from 'lucide-react';
 import { getCurrentUser, logout, isSessionExpired, refreshActivity, getMatches, subscribe, getAnnouncements, getFeedbacks, isAdmin } from './lib/store';
 import { showNotification } from './lib/notifications';
 import type { Member, Match } from './lib/types';
@@ -15,7 +15,9 @@ import CoachPage from './pages/CoachPage';
 import MyPage from './pages/MyPage';
 import TacticsPage from './pages/TacticsPage';
 import DuesPage from './pages/DuesPage';
+import PhotosPage from './pages/PhotosPage';
 import InstallBanner from './components/InstallBanner';
+import InstallPrompt, { shouldShowInstallPrompt } from './components/InstallPrompt';
 
 const tabs = [
   { to: '/', icon: Home, label: '홈' },
@@ -29,6 +31,8 @@ const tabs = [
 export default function App() {
   const [user, setUser] = useState<Member | null>(getCurrentUser);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
+  // 브라우저로 들어온 사람에게 설치 안내 (홈 화면 앱으로 실행 중이면 뜨지 않음)
+  const [showInstall, setShowInstall] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -39,6 +43,11 @@ export default function App() {
   useEffect(() => {
     setUser(getCurrentUser());
   }, [location.pathname]);
+
+  // 세션이 남아 있어 로그인 화면을 거치지 않은 경우에도 한 번 안내합니다.
+  useEffect(() => {
+    if (isLoggedIn && shouldShowInstallPrompt()) setShowInstall(true);
+  }, [isLoggedIn]);
 
   // 세션 만료 체크 (1시간 무반응 시 자동 로그아웃)
   useEffect(() => {
@@ -177,6 +186,7 @@ export default function App() {
 
   const handleLogin = () => {
     setUser(getCurrentUser());
+    if (shouldShowInstallPrompt()) setShowInstall(true);
     const intended = sessionStorage.getItem('ojifc_postLoginPath');
     if (intended) {
       sessionStorage.removeItem('ojifc_postLoginPath');
@@ -223,8 +233,11 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-gray-50 relative">
-      {/* PWA 설치 / 알림 권한 배너 */}
+      {/* 알림 권한 배너 */}
       <InstallBanner />
+
+      {/* 설치 안내 (브라우저 접속 시) */}
+      {showInstall && <InstallPrompt onClose={() => setShowInstall(false)} />}
 
       {/* Top bar with user info */}
       <div
@@ -255,6 +268,13 @@ export default function App() {
                 >
                   <UserIcon size={16} />
                   내 페이지
+                </button>
+                <button
+                  onClick={() => { setShowLogoutMenu(false); navigate('/photos'); }}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 font-medium hover:bg-gray-50 transition-colors border-b border-gray-100"
+                >
+                  <Images size={16} />
+                  사진첩
                 </button>
                 {isAdmin() && (
                   <button
@@ -289,6 +309,7 @@ export default function App() {
           <Route path="/me" element={<MyPage />} />
           <Route path="/tactics" element={<TacticsPage />} />
           <Route path="/dues" element={<DuesPage />} />
+          <Route path="/photos" element={<PhotosPage />} />
           <Route path="/attend" element={<AttendPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
