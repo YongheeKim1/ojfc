@@ -12,8 +12,10 @@
  * 필요 시크릿: FIREBASE_SERVICE_ACCOUNT (서비스 계정 JSON 전체)
  */
 import admin from 'firebase-admin';
-
-const APP_URL = 'https://yongheekim1.github.io/ojfc/';
+import {
+  computeEvents, decideMatchPush, isStaleRecord,
+  buildMatchMessage, buildAnnouncementMessage, buildFeedbackMessage,
+} from './events.mjs';
 
 function initAdmin() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -29,59 +31,6 @@ function initAdmin() {
     process.exit(1);
   }
   admin.initializeApp({ credential: admin.credential.cert(svc) });
-}
-
-// 매치 상태 → 발생해야 할 이벤트 목록
-function computeEvents(match) {
-  const events = ['new'];
-  const s = match.status;
-  if (['lineup', 'playing', 'voting', 'done'].includes(s)) events.push('lineup');
-  if (['voting', 'done'].includes(s)) events.push('voting');
-  if (s === 'done') events.push('done');
-  return events;
-}
-
-function dateStr(ts) {
-  if (!ts) return '';
-  const d = new Date(Number(ts));
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// 이벤트별 알림 문구 + 이동 경로
-function buildMessage(event, match) {
-  const title = match.title || '오지FC';
-  switch (event) {
-    case 'new':
-      return {
-        title: '새 매치가 등록되었습니다',
-        body: `${title} · ${dateStr(match.date)} · ${match.location || ''}`.trim(),
-        url: APP_URL + '#/match',
-        tag: 'match-new',
-      };
-    case 'lineup':
-      return {
-        title: '라인업이 나왔습니다',
-        body: `${title} · 축구장에서 확인하세요`,
-        url: APP_URL + `#/lineup?matchId=${match.id}`,
-        tag: 'lineup',
-      };
-    case 'voting':
-      return {
-        title: 'POM 투표가 시작되었습니다',
-        body: `${title} · 이번 경기 MVP를 뽑아주세요`,
-        url: APP_URL + '#/',
-        tag: 'voting',
-      };
-    case 'done':
-      return {
-        title: '매치가 종료되었습니다',
-        body: `${title} · 결과 ${match.scoreA ?? 0} : ${match.scoreB ?? 0}`,
-        url: APP_URL + '#/match',
-        tag: 'done',
-      };
-    default:
-      return null;
-  }
 }
 
 async function loadTokens(db) {
@@ -169,29 +118,25 @@ async function runCycle(db, messaging) {
   const allInvalid = new Set();
 
   for (const match of matches) {
-    const applicable = computeEvents(match);
-    const pushed = Array.isArray(match.pushedEvents) ? match.pushedEvents : [];
-
     if (isFirstRun) {
       // baseline: 현재 상태를 이미 보낸 것으로 기록, 전송은 하지 않음
-      await db.collection('matches').doc(match.id).update({ pushedEvents: applicable });
+      await db.collection('matches').doc(match.id).update({ pushedEvents: computeEvents(match) });
       continue;
     }
 
-    const newEvents = applicable.filter((e) => !pushed.includes(e));
-    if (newEvents.length === 0) continue;
+    const { event, pushedEvents } = decideMatchPush(match);
+    if (!pushedEvents) continue;
 
-    for (const event of newEvents) {
-      const msg = buildMessage(event, match);
-      if (!msg) continue;
+    const msg = event ? buildMatchMessage(event, match) : null;
+    if (msg) {
       const { sent, invalid } = await sendPush(messaging, allTokens, msg);
       invalid.forEach((t) => allInvalid.add(t));
       console.log(`[${match.title}] ${event} → ${sent}명 전송`);
+    } else {
+      console.log(`[${match.title}] 오래된 이벤트 — 알림 없이 처리`);
     }
 
-    // 보낸 이벤트 병합 기록
-    const merged = Array.from(new Set([...pushed, ...newEvents]));
-    await db.collection('matches').doc(match.id).update({ pushedEvents: merged });
+    await db.collection('matches').doc(match.id).update({ pushedEvents });
   }
 
   // ── 감독 전체 공지 (announcements) → 전체 브로드캐스트 ──
@@ -203,16 +148,12 @@ async function runCycle(db, messaging) {
       await db.collection('announcements').doc(a.id).update({ pushed: true });
       continue;
     }
-    const msg = {
-      title: '감독의 한마디',
-      body: a.content || '',
-      url: APP_URL + '#/coach',
-      tag: 'announcement',
-    };
-    const { sent, invalid } = await sendPush(messaging, allTokens, msg);
-    invalid.forEach((t) => allInvalid.add(t));
+    if (!isStaleRecord(a)) {
+      const { sent, invalid } = await sendPush(messaging, allTokens, buildAnnouncementMessage(a));
+      invalid.forEach((t) => allInvalid.add(t));
+      console.log(`[공지] → ${sent}명 전송`);
+    }
     await db.collection('announcements').doc(a.id).update({ pushed: true });
-    console.log(`[공지] → ${sent}명 전송`);
   }
 
   // ── 개별 편지 (feedbacks) → 받는 사람 토큰에만 ──
@@ -225,14 +166,8 @@ async function runCycle(db, messaging) {
       continue;
     }
     const targetTokens = tokenRows.filter((r) => r.memberId === f.memberId).map((r) => r.token);
-    if (targetTokens.length > 0) {
-      const msg = {
-        title: '감독에게서 편지가 도착했습니다',
-        body: f.content || '',
-        url: APP_URL + '#/coach',
-        tag: 'feedback-' + f.memberId,
-      };
-      const { sent, invalid } = await sendPush(messaging, targetTokens, msg);
+    if (targetTokens.length > 0 && !isStaleRecord(f)) {
+      const { sent, invalid } = await sendPush(messaging, targetTokens, buildFeedbackMessage(f));
       invalid.forEach((t) => allInvalid.add(t));
       console.log(`[편지→${f.memberName}] → ${sent}명 전송`);
     }

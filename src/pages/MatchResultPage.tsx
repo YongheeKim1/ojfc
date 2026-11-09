@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Trophy,
   Check,
@@ -252,13 +252,36 @@ export default function MatchResultPage() {
     }
   };
 
+  // 누르면 바로 해당 경기의 POM 투표 화면이 열리는 링크
+  const voteLink = (matchId: string) =>
+    `${window.location.origin}${import.meta.env.BASE_URL}#/match?vote=${matchId}`;
+
+  // 투표 링크만 글로 공유 — 카톡은 이미지와 글을 같이 보내면 글을 버리는 경우가 있어 따로 둡니다
+  const handleShareVoteLink = async (m: Match) => {
+    const url = voteLink(m.id);
+    const text = `${m.title} POM 투표해주세요! 👇 누르면 바로 투표 화면이 열립니다\n${url}`;
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('투표 링크가 복사되었습니다. 카톡에 붙여넣기 하세요!');
+    } catch {
+      prompt('아래 내용을 복사해서 카톡에 붙여넣기 하세요:', text);
+    }
+  };
+
   // 경기 결과 공유 — 결과 이미지 + 글 (POM 투표 안내 포함)
   const [sharingId, setSharingId] = useState<string | null>(null);
 
   const handleShareResult = async (m: Match) => {
     setSharingId(m.id);
     try {
-      const url = window.location.origin + import.meta.env.BASE_URL + '#/match';
+      // 투표 중이면 누르는 즉시 투표 화면이 열리는 링크를 붙입니다
+      const canVote = m.status === 'voting';
+      const url = canVote ? voteLink(m.id) : window.location.origin + import.meta.env.BASE_URL + '#/match';
       const dateStr = new Date(m.date).toLocaleDateString('ko-KR');
       const guests = getGuestsByMatch(m.id);
       const opponent = m.opponentName?.trim() || '상대팀';
@@ -286,8 +309,8 @@ export default function MatchResultPage() {
       if (goalLines.length > 0) lines.push('', `득점: ${goalLines.join(', ')}`);
       if (pomNames.length > 0) {
         lines.push('', `${pomNames.length > 1 ? '공동 POM' : 'POM'}: ${pomNames.join(', ')}`);
-      } else {
-        lines.push('', 'POM 투표하기 👉 오지FC 앱에서 투표해주세요!');
+      } else if (canVote) {
+        lines.push('', 'POM 투표해주세요! 👇 누르면 바로 투표 화면이 열립니다', url);
       }
       const text = lines.join('\n');
 
@@ -302,6 +325,7 @@ export default function MatchResultPage() {
         scoreB: m.scoreB,
         goals: goalLines,
         pomNames,
+        showVote: canVote,
       });
       const result = await shareResult(blob, text, url);
       if (result === 'copied') alert('결과 이미지를 저장하고 글을 복사했습니다. 카톡에 붙여넣기 하세요!');
@@ -339,6 +363,24 @@ export default function MatchResultPage() {
       setVoteSaved(true);
     }
   };
+
+  // 공유된 링크(#/match?vote=매치ID)로 들어오면 그 경기 투표를 바로 펼칩니다
+  const [searchParams] = useSearchParams();
+  const voteParam = searchParams.get('vote');
+  const voteLinkHandled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!voteParam || voteLinkHandled.current === voteParam) return;
+    const target = matches.find((m) => m.id === voteParam);
+    if (!target) return; // 아직 데이터를 받는 중이면 다음 갱신 때 다시 확인
+    voteLinkHandled.current = voteParam;
+    if (target.status !== 'voting') return;
+    openVoting(target);
+    // 펼쳐진 투표 영역까지 스크롤 (렌더링 후)
+    setTimeout(() => {
+      document.getElementById(`pom-vote-${target.id}`)?.scrollIntoView({ block: 'start' });
+    }, 150);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voteParam, matches]);
 
   const handleEndGame = async (matchId: string) => {
     if (!admin) return;
@@ -670,11 +712,17 @@ export default function MatchResultPage() {
                             className="mt-2 w-full py-2 bg-[#16a34a] text-white rounded-lg text-xs font-bold hover:bg-green-600 disabled:bg-gray-300 transition-colors flex items-center justify-center gap-1.5">
                             <Share2 size={14} /> {sharingId === match.id ? '만드는 중...' : '경기 결과 공유'}
                           </button>
+                          {match.status === 'voting' && (
+                            <button onClick={() => handleShareVoteLink(match)}
+                              className="mt-2 w-full py-2 bg-yellow-500 text-white rounded-lg text-xs font-bold hover:bg-yellow-600 transition-colors flex items-center justify-center gap-1.5">
+                              <Trophy size={14} /> POM 투표 링크 공유
+                            </button>
+                          )}
                         </div>
                         )}
 
                         {/* POM Voting */}
-                        <div className="bg-white rounded-xl p-4">
+                        <div id={`pom-vote-${match.id}`} className="bg-white rounded-xl p-4 scroll-mt-16">
                           <h4 className="text-xs font-bold text-gray-700 mb-1 text-center">POM 투표</h4>
                           <p className="text-[10px] text-gray-400 text-center mb-3">이번 경기의 MVP를 선택하세요!</p>
 

@@ -207,4 +207,5 @@ export interface PhotoComment {
   name: string;
   text: string;
   createdAt: number;
+  likes?: string[];     // 좋아요 누른 멤버 ID
 }

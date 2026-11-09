@@ -2,7 +2,7 @@ import { db } from './firebase';
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot,
   query, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData, increment, updateDoc,
-  getCountFromServer,
+  getCountFromServer, arrayUnion, arrayRemove,
 } from 'firebase/firestore';
 import type { Photo, PhotoComment } from './types';
 import { getCurrentUser, isAdmin } from './store';
@@ -221,6 +221,16 @@ export async function addComment(photoId: string, text: string): Promise<void> {
   };
   await setDoc(doc(db, 'photos', photoId, 'comments', id), comment);
   await updateDoc(doc(db, 'photos', photoId), { commentCount: increment(1) });
+}
+
+/** 댓글 좋아요 켜기/끄기 — 동시에 눌러도 서로 덮어쓰지 않도록 배열 연산을 씁니다 */
+export async function toggleCommentLike(comment: PhotoComment): Promise<void> {
+  const user = getCurrentUser();
+  if (!user) throw new Error('로그인이 필요합니다');
+  const liked = (comment.likes || []).includes(user.id);
+  await updateDoc(doc(db, 'photos', comment.photoId, 'comments', comment.id), {
+    likes: liked ? arrayRemove(user.id) : arrayUnion(user.id),
+  });
 }
 
 export function canDeleteComment(comment: PhotoComment): boolean {

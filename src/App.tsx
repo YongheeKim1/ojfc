@@ -46,7 +46,7 @@ export default function App() {
 
   // 세션이 남아 있어 로그인 화면을 거치지 않은 경우에도 한 번 안내합니다.
   useEffect(() => {
-    if (isLoggedIn && shouldShowInstallPrompt()) setShowInstall(true);
+    if (isLoggedIn && shouldShowInstallPrompt() && !location.search.includes('vote=')) setShowInstall(true);
   }, [isLoggedIn]);
 
   // 세션 만료 체크 (1시간 무반응 시 자동 로그아웃)
@@ -186,8 +186,9 @@ export default function App() {
 
   const handleLogin = () => {
     setUser(getCurrentUser());
-    if (shouldShowInstallPrompt()) setShowInstall(true);
     const intended = sessionStorage.getItem('ojifc_postLoginPath');
+    // 투표 링크로 들어온 사람은 설치 안내로 막지 않고 바로 투표 화면으로 보냅니다
+    if (shouldShowInstallPrompt() && !intended?.includes('vote=')) setShowInstall(true);
     if (intended) {
       sessionStorage.removeItem('ojifc_postLoginPath');
       navigate(intended);

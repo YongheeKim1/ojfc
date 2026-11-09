@@ -10,7 +10,8 @@ export interface ResultCardInput {
   scoreA: number;
   scoreB: number;
   goals: string[];       // 예: "1Q 김용희"
-  pomNames: string[];    // 확정된 POM (없으면 투표 안내)
+  pomNames: string[];    // 확정된 POM
+  showVote: boolean;     // POM 미정 + 투표 진행 중이면 투표 안내 표시
 }
 
 const W = 1080;
@@ -129,7 +130,7 @@ export async function buildResultCard(input: ResultCardInput): Promise<Blob> {
   if (input.pomNames.length > 0) {
     const label = input.pomNames.length > 1 ? '공동 POM' : 'POM';
     centerText(ctx, `⭐ ${label} · ${input.pomNames.join(', ')}`, H - 120, 40, '800', '#fde047');
-  } else {
+  } else if (input.showVote) {
     const pillW = 440;
     const pillH = 92;
     ctx.fillStyle = '#16a34a';

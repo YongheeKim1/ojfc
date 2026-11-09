@@ -1,4 +1,4 @@
-import { db } from './firebase';
+import { db, PUSH_WORKER_URL } from './firebase';
 import {
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   query, orderBy
@@ -103,6 +103,19 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// 알림이 필요한 문서를 저장한 직후 즉시 푸시 서버를 깨웁니다.
+// 알림은 부가 기능이라 실패해도 저장 흐름을 막지 않습니다.
+// text/plain 으로 보내면 CORS 사전 요청 없이 바로 전달됩니다.
+function pokePush(col: 'matches' | 'announcements' | 'feedbacks', id: string) {
+  if (!PUSH_WORKER_URL) return;
+  fetch(`${PUSH_WORKER_URL}/poke`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ col, id }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 // Firestore 쓰기 에러 알림
 async function safeWrite<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -198,6 +211,7 @@ export async function saveAnnouncement(content: string, authorName: string): Pro
   await safeWrite(() => setDoc(doc(db, 'announcements', id), {
     id, content: content.trim(), authorName, createdAt: Date.now(),
   }));
+  pokePush('announcements', id);
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
@@ -225,6 +239,7 @@ export async function saveFeedback(
   };
   if (matchId) { payload.matchId = matchId; payload.matchTitle = matchTitle || ''; }
   await safeWrite(() => setDoc(doc(db, 'feedbacks', id), payload));
+  pokePush('feedbacks', id);
 }
 
 export async function deleteFeedback(id: string): Promise<void> {
@@ -441,11 +456,13 @@ export function getMatches(): Match[] {
 export async function saveMatch(match: Omit<Match, 'id'>): Promise<Match> {
   const newMatch: Match = { ...match, id: genId() };
   await safeWrite(() => setDoc(doc(db, 'matches', newMatch.id), newMatch));
+  pokePush('matches', newMatch.id);
   return newMatch;
 }
 
 export async function updateMatch(id: string, updates: Partial<Match>) {
   await safeWrite(() => updateDoc(doc(db, 'matches', id), updates as Record<string, never>));
+  if (updates.status) pokePush('matches', id); // 라인업·투표·종료 전환만 알림 대상
 }
 
 export async function deleteMatch(id: string) {

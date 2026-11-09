@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Images, Upload, X, Trash2, Send, MessageCircle, Loader2, ChevronLeft, ChevronRight,
+  Images, Upload, X, Trash2, Send, MessageCircle, Loader2, ChevronLeft, ChevronRight, Heart,
 } from 'lucide-react';
 import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import type { Photo, PhotoComment } from '../lib/types';
 import {
   preparePhoto, uploadPhoto, fetchPhotos, fetchPhotoData, fetchPhotoCount, deletePhoto, canDeletePhoto,
-  subscribeComments, addComment, deleteComment, canDeleteComment,
+  subscribeComments, addComment, deleteComment, canDeleteComment, toggleCommentLike,
   formatBytes, MAX_PHOTOS, type PreparedPhoto,
 } from '../lib/photos';
 import { getCurrentUser } from '../lib/store';
@@ -268,6 +268,153 @@ export default function PhotosPage() {
 }
 
 // ──────────────────────────────────────────
+// 사진 확대: 두 손가락 벌리기 / 두 번 탭 / PC 휠, 확대 중엔 드래그로 이동
+// ──────────────────────────────────────────
+
+const MAX_ZOOM = 5;
+const DOUBLE_TAP_ZOOM = 2.5;
+const DOUBLE_TAP_MS = 300;
+
+type ZoomState = { scale: number; x: number; y: number };
+
+function ZoomableImage({
+  src, alt, onZoomChange,
+}: {
+  src: string;
+  alt: string;
+  onZoomChange: (zoomed: boolean) => void;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [view, setView] = useState<ZoomState>({ scale: 1, x: 0, y: 0 });
+  // 포인터 이벤트마다 최신 값을 읽어야 해서 ref 에도 둡니다
+  const viewRef = useRef(view);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; mid: { x: number; y: number } } | null>(null);
+  const lastTap = useRef(0);
+  const moved = useRef(false);
+
+  // 사진이 화면 밖으로 빠져나가지 않게 이동 범위를 제한합니다
+  const clamp = (next: ZoomState): ZoomState => {
+    const scale = Math.min(MAX_ZOOM, Math.max(1, next.scale));
+    const box = boxRef.current;
+    const img = imgRef.current;
+    if (!box || !img || scale === 1) return { scale, x: 0, y: 0 };
+    const maxX = Math.max(0, (img.offsetWidth * scale - box.clientWidth) / 2);
+    const maxY = Math.max(0, (img.offsetHeight * scale - box.clientHeight) / 2);
+    return {
+      scale,
+      x: Math.min(maxX, Math.max(-maxX, next.x)),
+      y: Math.min(maxY, Math.max(-maxY, next.y)),
+    };
+  };
+
+  const apply = (next: ZoomState) => {
+    const v = clamp(next);
+    viewRef.current = v;
+    setView(v);
+    onZoomChange(v.scale > 1);
+  };
+
+  // 화면의 한 점을 기준으로 배율을 바꿉니다 (그 점이 손가락 아래 그대로 남도록)
+  const zoomAt = (clientX: number, clientY: number, scale: number) => {
+    const box = boxRef.current;
+    if (!box) return;
+    const r = box.getBoundingClientRect();
+    const px = clientX - r.left - r.width / 2;
+    const py = clientY - r.top - r.height / 2;
+    const cur = viewRef.current;
+    const nextScale = Math.min(MAX_ZOOM, Math.max(1, scale));
+    const k = nextScale / cur.scale;
+    apply({ scale: nextScale, x: px - (px - cur.x) * k, y: py - (py - cur.y) * k });
+  };
+
+  const pinchInfo = () => {
+    const [a, b] = Array.from(pointers.current.values());
+    return {
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    };
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 합성 이벤트 등 */ }
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 1) moved.current = false;
+    if (pointers.current.size === 2) pinch.current = pinchInfo();
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const prev = pointers.current.get(e.pointerId);
+    if (!prev) return;
+    if (Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y) > 2) moved.current = true;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.current.size === 2 && pinch.current) {
+      const now = pinchInfo();
+      zoomAt(now.mid.x, now.mid.y, viewRef.current.scale * (now.dist / pinch.current.dist));
+      // 두 손가락을 같이 움직이면 사진도 따라 이동
+      const after = viewRef.current;
+      apply({ ...after, x: after.x + now.mid.x - pinch.current.mid.x, y: after.y + now.mid.y - pinch.current.mid.y });
+      pinch.current = now;
+      return;
+    }
+    if (pointers.current.size === 1 && viewRef.current.scale > 1) {
+      const cur = viewRef.current;
+      apply({ ...cur, x: cur.x + e.clientX - prev.x, y: cur.y + e.clientY - prev.y });
+    }
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    const wasPinching = pointers.current.size >= 2;
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (wasPinching || moved.current) return;
+
+    const now = Date.now();
+    if (now - lastTap.current < DOUBLE_TAP_MS) {
+      lastTap.current = 0;
+      if (viewRef.current.scale > 1) apply({ scale: 1, x: 0, y: 0 });
+      else zoomAt(e.clientX, e.clientY, DOUBLE_TAP_ZOOM);
+    } else {
+      lastTap.current = now;
+    }
+  };
+
+  const onPointerCancel = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    zoomAt(e.clientX, e.clientY, viewRef.current.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+  };
+
+  return (
+    <div
+      ref={boxRef}
+      data-testid="zoom-box"
+      className="w-full h-full flex items-center justify-center overflow-hidden select-none"
+      style={{ touchAction: 'none' }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onWheel={onWheel}
+    >
+      <img
+        ref={imgRef}
+        src={src}
+        alt={alt}
+        draggable={false}
+        className="max-w-full max-h-full object-contain"
+        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+      />
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────
 // 사진 보기 + 댓글
 // ──────────────────────────────────────────
 
@@ -288,6 +435,10 @@ function PhotoViewer({
   const [comments, setComments] = useState<PhotoComment[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+
+  // 사진을 넘기면 확대 상태도 초기화됩니다 (ZoomableImage 가 새로 만들어짐)
+  useEffect(() => { setZoomed(false); }, [photo.id]);
 
   // 원본은 열었을 때만 받아옵니다 (목록에서는 썸네일만 씁니다)
   useEffect(() => {
@@ -345,14 +496,14 @@ function PhotoViewer({
 
       {/* 사진 */}
       <div className="relative flex-1 min-h-0 flex items-center justify-center">
-        <img src={src} alt={photo.caption || ''} className="max-w-full max-h-full object-contain" />
-        {hasPrev && (
+        <ZoomableImage key={photo.id} src={src} alt={photo.caption || ''} onZoomChange={setZoomed} />
+        {hasPrev && !zoomed && (
           <button onClick={onPrev}
             className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center">
             <ChevronLeft size={20} />
           </button>
         )}
-        {hasNext && (
+        {hasNext && !zoomed && (
           <button onClick={onNext}
             className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center">
             <ChevronRight size={20} />
@@ -388,6 +539,20 @@ function PhotoViewer({
                     </p>
                     <p className="text-sm text-gray-700 break-words">{c.text}</p>
                   </div>
+                  {(() => {
+                    const likes = c.likes || [];
+                    const liked = likes.includes(meId);
+                    return (
+                      <button
+                        onClick={() => toggleCommentLike(c)}
+                        aria-label={liked ? '좋아요 취소' : '좋아요'}
+                        className={`flex items-center gap-0.5 shrink-0 text-[11px] font-bold px-1 ${liked ? 'text-red-500' : 'text-gray-300 hover:text-red-400'}`}
+                      >
+                        <Heart size={14} className={liked ? 'fill-red-500' : ''} />
+                        {likes.length > 0 && <span>{likes.length}</span>}
+                      </button>
+                    );
+                  })()}
                   {canDeleteComment(c) && (
                     <button onClick={() => removeComment(c)} className="text-gray-300 hover:text-red-500 shrink-0">
                       <Trash2 size={13} />

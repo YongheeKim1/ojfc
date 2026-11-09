@@ -10,6 +10,7 @@ import {
   MapPin,
   Phone,
   Lock,
+  Pencil,
 } from 'lucide-react';
 import { Guest, Match, Position, POSITIONS, getPositionColor } from '../lib/types';
 import {
@@ -93,6 +94,29 @@ export default function GuestsPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [memoDraft, setMemoDraft] = useState<Record<string, string>>({});
   const [memoSaved, setMemoSaved] = useState<string | null>(null);
+
+  // 용병 정보 수정 (잘못 기입한 이름·번호·포지션 고치기)
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editPositions, setEditPositions] = useState<Position[]>([]);
+
+  const startEdit = (guest: Guest) => {
+    setEditingId(guest.id);
+    setEditName(guest.name);
+    setEditPhone(guest.phone || '');
+    setEditPositions(guest.positions);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!admin || !editingId || !editName.trim() || editPositions.length === 0) return;
+    await updateGuest(editingId, {
+      name: editName.trim(),
+      phone: editPhone.trim(),
+      positions: editPositions,
+    });
+    setEditingId(null);
+  };
 
   // Matches available for guest registration (scheduled or lineup)
   const availableMatches = matches.filter(
@@ -389,7 +413,8 @@ export default function GuestsPage() {
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                  {guest.phone && (
+                                  {/* 전화번호는 운영진에게만 보여줍니다 */}
+                                  {admin && guest.phone && (
                                     <span className="text-xs text-gray-400 flex items-center gap-0.5">
                                       <Phone size={10} />
                                       {guest.phone}
@@ -485,6 +510,73 @@ export default function GuestsPage() {
                                   </button>
                                 </div>
                               </div>
+
+                              {/* 용병 정보 수정 (admin only) */}
+                              {admin && (editingId === guest.id ? (
+                                <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3 space-y-2.5">
+                                  <h3 className="text-sm font-semibold text-gray-700">용병 정보 수정</h3>
+                                  <input
+                                    type="text"
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    placeholder="이름"
+                                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-transparent"
+                                  />
+                                  <input
+                                    type="tel"
+                                    value={editPhone}
+                                    onChange={(e) => setEditPhone(e.target.value)}
+                                    placeholder="010-0000-0000"
+                                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-transparent"
+                                  />
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {POSITIONS.map((p) => {
+                                      const on = editPositions.includes(p.value);
+                                      return (
+                                        <button
+                                          key={p.value}
+                                          type="button"
+                                          onClick={() =>
+                                            setEditPositions((prev) =>
+                                              on ? prev.filter((x) => x !== p.value) : [...prev, p.value]
+                                            )
+                                          }
+                                          className={`text-[11px] px-2.5 py-1.5 rounded-lg font-medium border transition-all ${
+                                            on
+                                              ? `${getPositionColor(p.value)} border-current`
+                                              : 'bg-white text-gray-500 border-gray-200'
+                                          }`}
+                                        >
+                                          {p.value}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={handleSaveEdit}
+                                      disabled={!editName.trim() || editPositions.length === 0}
+                                      className="flex-1 bg-[#16a34a] text-white py-2.5 rounded-xl text-sm font-medium disabled:bg-gray-300 transition-colors"
+                                    >
+                                      저장
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingId(null)}
+                                      className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl text-sm font-medium"
+                                    >
+                                      취소
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => startEdit(guest)}
+                                  className="flex items-center justify-center gap-1.5 w-full border border-gray-200 text-gray-700 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+                                >
+                                  <Pencil size={14} />
+                                  용병 정보 수정
+                                </button>
+                              ))}
 
                               {/* 관리자 메모 (admin only - 읽기/쓰기) */}
                               {admin && (

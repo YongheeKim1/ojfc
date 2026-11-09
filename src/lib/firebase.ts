@@ -16,3 +16,6 @@ export const db = getFirestore(app);
 // 웹 푸시 VAPID 공개키 (Firebase Console → 프로젝트 설정 → Cloud Messaging → 웹 푸시 인증서 → 키 쌍 생성)
 // 발급 후 아래 'PASTE_VAPID_KEY_HERE'를 그 키로 교체하세요. 교체 전엔 푸시 토큰 등록이 자동 skip됩니다.
 export const VAPID_KEY = 'BOd7-pIupN5ePDVaSnsY1LMlp87SxdxP8fP3u_ixOXE_v37XN0-npS52wpxb4faEx2xan54mQINDFK3MYga_Wd8';
+
+// 즉시 푸시 서버(Cloudflare Worker) 주소. 비어 있으면 호출하지 않고 GitHub Actions 예약 실행만 씁니다.
+export const PUSH_WORKER_URL: string = '';
