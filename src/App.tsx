@@ -16,6 +16,7 @@ import MyPage from './pages/MyPage';
 import TacticsPage from './pages/TacticsPage';
 import DuesPage from './pages/DuesPage';
 import PhotosPage from './pages/PhotosPage';
+import ActivityPage from './pages/ActivityPage';
 import InstallBanner from './components/InstallBanner';
 import InstallPrompt, { shouldShowInstallPrompt } from './components/InstallPrompt';
 
@@ -316,6 +317,7 @@ export default function App() {
           <Route path="/tactics" element={<TacticsPage />} />
           <Route path="/dues" element={<DuesPage />} />
           <Route path="/photos" element={<PhotosPage />} />
+          <Route path="/activity" element={<ActivityPage />} />
           <Route path="/attend" element={<AttendPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

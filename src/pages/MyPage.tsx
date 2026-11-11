@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Goal, Shield, Star, Mail, Users as UsersIcon, LayoutGrid } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Trophy, Goal, Shield, Star, Mail, Users as UsersIcon, LayoutGrid, Activity as ActivityIcon, ChevronRight } from 'lucide-react';
 import {
   getCurrentUser, getMembers, getMatches, getGuests, getFeedbacksForMember, subscribe,
 } from '../lib/store';
 import { computePlayerStats, playerName, isPairReliable } from '../lib/stats';
-import type { Member, Match } from '../lib/types';
+import type { Member, Match, Activity } from '../lib/types';
+import { fetchMyActivities, matchWindow } from '../lib/activity';
 import { getPositionColor } from '../lib/types';
 
 function formatDateTime(ts: number): string {
@@ -55,6 +57,17 @@ export default function MyPage() {
       setMe(getCurrentUser());
     });
   }, []);
+
+  // 경기별 활동 기록 (내 것만 따로 읽어옵니다)
+  const [activities, setActivities] = useState<Activity[] | null>(null);
+  useEffect(() => {
+    if (!me) return;
+    let alive = true;
+    fetchMyActivities(me.id)
+      .then(list => { if (alive) setActivities(list); })
+      .catch(() => { if (alive) setActivities([]); });
+    return () => { alive = false; };
+  }, [me?.id]);
 
   if (!me) return null;
   // 최신 멤버 정보 (pomCount 등은 캐시가 최신)
@@ -120,6 +133,9 @@ export default function MyPage() {
             </div>
           ))}
         </div>
+
+        {/* 경기별 활동 기록 */}
+        <ActivityList me={me} matches={matches} activities={activities} />
 
         {isApprox && (
           <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
@@ -194,6 +210,48 @@ export default function MyPage() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// 내가 뛴(또는 참석한) 최근 경기의 활동 기록
+function ActivityList({ me, matches, activities }: { me: Member; matches: Match[]; activities: Activity[] | null }) {
+  const played = matches
+    .filter(m => ['playing', 'voting', 'done'].includes(m.status) && matchWindow(m))
+    .filter(m =>
+      (m.quarters || []).some(q =>
+        Object.values(q.playing || {}).includes(me.id) || (q.resting || []).includes(me.id)) ||
+      (m.attendees || []).includes(me.id))
+    .slice(0, 6);
+  if (played.length === 0) return null;
+  const byMatch = new Map((activities || []).map(a => [a.matchId, a]));
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4">
+      <h2 className="text-sm font-bold text-gray-700 mb-2.5 flex items-center gap-1.5">
+        <ActivityIcon size={15} className="text-rose-500" /> 경기별 활동 기록
+      </h2>
+      <div className="divide-y divide-gray-50">
+        {played.map(m => {
+          const a = byMatch.get(m.id);
+          const parts = a ? [
+            a.distanceKm != null && `${a.distanceKm}km`,
+            a.activeKcal != null && `${a.activeKcal}kcal`,
+            a.avgHr != null && `평균 ${a.avgHr}bpm`,
+          ].filter(Boolean) : [];
+          return (
+            <Link key={m.id} to={`/activity?m=${m.id}`} className="flex items-center gap-2 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold text-gray-800 truncate">{m.title}</p>
+                <p className={`text-[11px] ${a ? 'text-gray-500' : 'text-gray-300'}`}>
+                  {activities === null ? '불러오는 중...' : parts.length ? parts.join(' · ') : '기록 없음 · 눌러서 추가'}
+                </p>
+              </div>
+              <ChevronRight size={15} className="text-gray-300 shrink-0" />
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

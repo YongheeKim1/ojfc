@@ -599,6 +599,18 @@ export default function MatchResultPage() {
                               className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
                               <Eye size={14} /> 라인업 보기
                             </button>
+                            {admin && (match.kickoffAt ? (
+                              <p className="text-[11px] text-gray-500 text-center">
+                                킥오프 {new Date(match.kickoffAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                                <button onClick={() => { if (confirm('킥오프 시각을 지금으로 다시 기록할까요?')) updateMatch(match.id, { kickoffAt: Date.now() }); }}
+                                  className="ml-1.5 underline text-gray-400">다시 기록</button>
+                              </p>
+                            ) : (
+                              <button onClick={() => updateMatch(match.id, { kickoffAt: Date.now() })}
+                                className="w-full py-2.5 bg-white border border-[#16a34a] text-[#16a34a] rounded-xl text-xs font-bold hover:bg-green-50 transition-colors flex items-center justify-center gap-2">
+                                <Play size={14} /> 킥오프 (활동 기록 시작 시각)
+                              </button>
+                            ))}
                             {admin && (
                               <button onClick={() => handleEndGame(match.id)}
                                 className="w-full py-2.5 bg-[#16a34a] text-white rounded-xl text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">

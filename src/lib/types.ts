@@ -166,7 +166,8 @@ export interface Match {
   quarterResults?: QuarterResult[]; // 쿼터별 결과 (승률 분석용)
   attendees: string[]; // 참석 확인한 멤버 IDs (구 버전 호환)
   attendance?: Record<string, 'in' | 'out' | 'maybe'>; // memberId → 참/불/미정
-  votingStartedAt?: number; // 투표 시작 시간
+  votingStartedAt?: number; // 투표 시작 시간 (= 경기 종료 시각)
+  kickoffAt?: number;       // 킥오프 시각 (활동 기록 시간대 계산용)
   status: 'scheduled' | 'lineup' | 'playing' | 'voting' | 'done';
 }
 
@@ -208,4 +209,19 @@ export interface PhotoComment {
   text: string;
   createdAt: number;
   likes?: string[];     // 좋아요 누른 멤버 ID
+}
+
+/** 경기별 활동 기록 (activities/{매치ID}_{멤버ID}) */
+export interface Activity {
+  id: string;
+  matchId: string;
+  memberId: string;
+  memberName: string;
+  distanceKm?: number;
+  activeKcal?: number;
+  avgHr?: number;
+  maxHr?: number;
+  steps?: number;
+  source: 'ios' | 'android' | 'manual';
+  updatedAt: number;
 }
