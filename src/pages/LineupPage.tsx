@@ -29,6 +29,7 @@ import {
   generateQuarterLineups,
   subscribe,
   isAdmin,
+  getTactics,
 } from '../lib/store';
 import type { FormationSlot } from '../lib/store';
 import type { Position, QuarterLineup } from '../lib/types';
@@ -692,13 +693,21 @@ export default function LineupPage() {
     setSwapSelectedId(null);
   };
 
-  // 라인업 공유 (카톡 등)
+  // 이 경기와 연결된 전술 (전술 보드에서 매치를 연결한 것)
+  const linkedTactics = match ? getTactics().filter(t => t.matchId === match.id) : [];
+  const tacticUrl = (id: string) => window.location.origin + import.meta.env.BASE_URL + `#/tactics?id=${id}`;
+
+  // 라인업 공유 (카톡 등) — 연결된 전술이 있으면 링크를 같이 보냅니다
   const handleShareLineup = async () => {
     if (!match) return;
     const url = window.location.origin + import.meta.env.BASE_URL + `#/lineup?matchId=${match.id}`;
     const dateStr = new Date(match.date).toLocaleDateString('ko-KR');
     const headline = `${match.title} 라인업이 나왔습니다!`;
-    const text = `${headline}\n\n${dateStr}\n${match.location || '-'}\n${match.formation || '4-2-3-1'}\n\n오지FC 앱에서 확인하세요`;
+    let text = `${headline}\n\n${dateStr}\n${match.location || '-'}\n${match.formation || '4-2-3-1'}\n\n오지FC 앱에서 확인하세요`;
+    if (linkedTactics.length > 0) {
+      const lines = linkedTactics.map(t => `▶ ${t.title}\n${tacticUrl(t.id)}`).join('\n\n');
+      text += `\n\n📋 오늘 전술도 보고 와주세요!\n${lines}`;
+    }
 
     if (navigator.share) {
       try {
@@ -1247,8 +1256,31 @@ export default function LineupPage() {
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-yellow-900 bg-yellow-300 hover:bg-yellow-400 transition-colors text-sm shadow-sm"
         >
           <Share2 size={16} />
-          카톡으로 공유
+          카톡으로 공유{linkedTactics.length > 0 && ' (전술 포함)'}
         </button>
+
+        {/* 이 경기 전술 바로가기 */}
+        {linkedTactics.length > 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-3">
+            <p className="text-xs font-bold text-gray-700 mb-2">이 경기 전술</p>
+            <div className="space-y-1.5">
+              {linkedTactics.map(t => (
+                <Link
+                  key={t.id}
+                  to={`/tactics?id=${t.id}`}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 text-sm font-semibold text-[#1e3a5f]"
+                >
+                  {t.title}
+                  <span className="text-[11px] text-gray-400 font-medium">장면 {t.cuts.length}개 ›</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : admin && (
+          <p className="text-[11px] text-gray-400 text-center">
+            전술 보드에서 이 경기를 연결하면 공유할 때 전술 링크도 같이 보내집니다
+          </p>
+        )}
 
         {admin && !isPlaying && (
           <>
