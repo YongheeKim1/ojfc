@@ -274,8 +274,8 @@ export default function TacticsPage() {
         markers: c.markers.map(m => ({ ...m })),
         arrows: c.arrows || [],
         note: c.note,
-        formation: c.formation,
-        oppFormation: c.oppFormation ?? null,
+        ...(c.formation ? { formation: c.formation } : {}),
+        ...(c.oppFormation ? { oppFormation: c.oppFormation } : {}),
       })));
       setTitle(tactic.title);
       setCutIdx(0);
@@ -286,7 +286,10 @@ export default function TacticsPage() {
 
   const persist = useCallback((nextCuts: TacticCut[], nextTitle?: string) => {
     if (!tactic || !coach) return;
-    updateTactic(tactic.id, { cuts: nextCuts, ...(nextTitle !== undefined ? { title: nextTitle } : {}) });
+    // Firestore 는 undefined 값이 하나라도 있으면 저장 전체를 거부합니다.
+    // 장면 데이터는 숫자·글자·배열뿐이라 JSON 왕복으로 undefined 항목만 안전하게 빠집니다.
+    const clean = JSON.parse(JSON.stringify(nextCuts)) as TacticCut[];
+    updateTactic(tactic.id, { cuts: clean, ...(nextTitle !== undefined ? { title: nextTitle } : {}) });
   }, [tactic, coach]);
 
   const patchCut = (idx: number, patch: Partial<TacticCut>, save = true) => {
@@ -318,7 +321,7 @@ export default function TacticsPage() {
     ];
     patchCut(cutIdx, {
       markers,
-      formation: ours ?? current.formation,
+      ...(ours ? { formation: ours } : {}),
       oppFormation: opp,
     });
   };
@@ -491,7 +494,8 @@ export default function TacticsPage() {
                 });
                 const dup: TacticCut = {
                   markers: nextMarkers, arrows: [], note: '',
-                  formation: cut.formation, oppFormation: cut.oppFormation ?? null,
+                  ...(cut.formation ? { formation: cut.formation } : {}),
+                  ...(cut.oppFormation ? { oppFormation: cut.oppFormation } : {}),
                 };
                 const next = [...cuts.slice(0, cutIdx + 1), dup, ...cuts.slice(cutIdx + 1)];
                 setCuts(next); persist(next); setCutIdx(cutIdx + 1);
