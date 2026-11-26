@@ -38,7 +38,6 @@ export default function VoteStatus({
             </p>
           )}
         </div>
-        <span className="text-[11px] text-green-700 font-semibold shrink-0">{voters}명 참여</span>
       </div>
 
       {/* 현재 투표 상황 */}
@@ -49,12 +48,12 @@ export default function VoteStatus({
           <Trophy size={13} className="text-yellow-500 fill-yellow-500 shrink-0" />
           <span className="text-[11px] text-yellow-800">
             {leaders.length > 1 ? '공동 1위' : '현재 1위'}: <b>{leaders.map(nameOf).join(' · ')}</b>
-            <span className="text-yellow-600"> ({maxV}표)</span>
+            <span className="text-yellow-600"> ({Math.round((maxV / voters) * 100)}%)</span>
           </span>
         </div>
       ) : noPom ? (
         <p className="text-[11px] text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-2 text-center">
-          1표씩 동률 — 이대로면 POM 없음
+          모두 동률 — 이대로면 POM 없음
         </p>
       ) : null}
 
@@ -73,7 +72,7 @@ export default function VoteStatus({
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-[10px] text-gray-500 w-14 text-right">{c}표 · {pct.toFixed(0)}%</span>
+              <span className="text-[10px] text-gray-500 w-9 text-right">{pct.toFixed(0)}%</span>
             </div>
           );
         })}
