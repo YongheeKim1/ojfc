@@ -50,6 +50,7 @@ export interface TacticMarker {
   y: number;
   kind?: 'player' | 'ball' | 'opponent';
   to?: { x: number; y: number }; // 이 장면에서의 이동 목표 (재생 시 여기로 움직임)
+  name?: string;          // 매치와 연결됐을 때 그 자리 선수 이름
 }
 
 export interface TacticArrow {
@@ -68,6 +69,8 @@ export interface Tactic {
   id: string;
   title: string;
   cuts: TacticCut[];
+  matchId?: string | null; // 연결된 매치 — 1번 장면의 우리 팀이 이 매치 라인업을 따라갑니다
+  quarter?: number;        // 연결된 매치에서 볼 쿼터 (0~3)
   authorName: string;
   createdAt: number;
   updatedAt: number;

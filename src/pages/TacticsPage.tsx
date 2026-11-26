@@ -2,14 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Clapperboard, Plus, Play, Square, Share2, Trash2, ChevronLeft,
-  Hand, MoveUpRight, Eraser, ArrowRightToLine,
+  Hand, MoveUpRight, Eraser, ArrowRightToLine, Link2,
 } from 'lucide-react';
 import {
   getTactics, saveTactic, updateTactic, deleteTactic, getCurrentUser, subscribe, isCoach,
-  FORMATIONS, FORMATIONS_BY_SIZE, TEAM_SIZES,
+  FORMATIONS, FORMATIONS_BY_SIZE, TEAM_SIZES, getMatches, updateMatch, getPlayerInfo,
 } from '../lib/store';
 import { labelFromCoord } from '../lib/stats';
-import type { Tactic, TacticCut, TacticMarker } from '../lib/types';
+import type { Tactic, TacticCut, TacticMarker, Match } from '../lib/types';
 
 // 기본 장면: 4-2-3-1 배치 + 공
 function defaultCut(): TacticCut {
@@ -44,6 +44,36 @@ function buildTeam(formation: string, side: 'us' | 'opp'): TacticMarker[] {
   });
 }
 
+/**
+ * 매치와 연결된 장면: 우리 팀을 그 매치의 포메이션·라인업(선택한 쿼터)으로 맞춥니다.
+ * 라인업에서 옮긴 자리와 선수 이름까지 따라오고, 전술에서 지정한 이동(to)은 같은 자리면 유지합니다.
+ * 저장된 값이 아니라 볼 때마다 계산하므로, 라인업이 바뀌면 전술도 바로 바뀝니다.
+ */
+function syncFromMatch(stored: TacticCut, match: Match, quarterIdx: number): TacticCut {
+  const formation = match.formation || '4-2-3-1';
+  const slots = FORMATIONS[formation] || FORMATIONS['4-2-3-1'];
+  const q = match.quarters?.[quarterIdx];
+  const prev = new Map(stored.markers.map(m => [m.id, m]));
+  const ours: TacticMarker[] = slots.map(sl => {
+    const moved = q?.slotPos?.[sl.id];
+    const x = moved ? moved.x : sl.x;
+    const marker: TacticMarker = {
+      id: `p-${sl.id}`,
+      label: moved ? labelFromCoord(moved.x, moved.y) : sl.label,
+      x,
+      y: toOwnHalf(moved ? moved.y : sl.y),
+      kind: 'player',
+    };
+    const pid = q?.playing?.[sl.id];
+    const name = pid ? getPlayerInfo(pid)?.name?.replace(/\s*\(용병\)$/, '') : undefined;
+    if (name) marker.name = name;
+    const to = prev.get(marker.id)?.to;
+    if (to) marker.to = to;
+    return marker;
+  });
+  return { ...stored, formation, markers: [...ours, ...stored.markers.filter(m => m.kind !== 'player')] };
+}
+
 // 옮긴 자리에 맞춰 자리 이름을 다시 붙입니다 (라인업과 같은 규칙)
 function relabel(m: TacticMarker, x: number, y: number): string {
   if (m.kind === 'player') return labelFromCoord(x, y);
@@ -74,11 +104,12 @@ const MOVE_MS = 1300; // 한 장면의 이동 애니메이션 시간
 // mode 'place': 마커를 끌어 시작 위치 배치
 // mode 'move' : 마커에서 끌어 이동 목표 지정 (짧게 탭하면 그 마커의 이동 삭제)
 function TacticsPitch({
-  cut, editable, mode, animating,
+  cut, editable, mode, animating, lockedIds,
   onPlace, onSetMove, onClearMove,
 }: {
   cut: TacticCut;
   editable: boolean;
+  lockedIds?: Set<string>; // 배치(위치 옮기기)를 막을 마커 — 매치 라인업을 따르는 선수
   mode: 'place' | 'move';
   animating: boolean; // true면 마커가 to 위치로 이동 중
   onPlace?: (markerId: string, x: number, y: number) => void;
@@ -104,6 +135,7 @@ function TacticsPitch({
 
   const down = (e: React.PointerEvent, id: string) => {
     if (!editable) return;
+    if (mode === 'place' && lockedIds?.has(id)) return;
     e.stopPropagation();
     try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* 합성 이벤트 */ }
     info.current = { kind: mode, id, moved: false, sx: e.clientX, sy: e.clientY };
@@ -232,10 +264,17 @@ function TacticsPitch({
                 <span className="text-[8px] font-extrabold text-white leading-none">{m.label}</span>
               </div>
             ) : (
-              <div className={`w-7 h-7 rounded-full bg-white/95 border-2 shadow-md flex items-center justify-center ${
-                hasMove && !animating ? 'border-sky-300' : 'border-white'
-              }`}>
-                <span className="text-[8px] font-extrabold text-gray-800 leading-none">{m.label}</span>
+              <div className="relative flex flex-col items-center">
+                <div className={`w-7 h-7 rounded-full bg-white/95 border-2 shadow-md flex items-center justify-center ${
+                  hasMove && !animating ? 'border-sky-300' : 'border-white'
+                }`}>
+                  <span className="text-[8px] font-extrabold text-gray-800 leading-none">{m.label}</span>
+                </div>
+                {m.name && (
+                  <span className="absolute top-full mt-0.5 px-1 rounded bg-black/45 text-[8px] font-bold text-white whitespace-nowrap leading-tight">
+                    {m.name}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -257,6 +296,14 @@ export default function TacticsPage() {
   useEffect(() => subscribe(() => setTactics(getTactics())), []);
 
   const tactic = tactics.find(t => t.id === id) || null;
+
+  // 연결된 매치 (라인업이 바뀌면 바로 반영되도록 구독)
+  const [matches, setMatches] = useState<Match[]>(getMatches());
+  useEffect(() => subscribe(() => setMatches(getMatches())), []);
+  const linkedMatch = tactic?.matchId ? matches.find(m => m.id === tactic.matchId) ?? null : null;
+  const hasLineup = (linkedMatch?.quarters?.length ?? 0) > 0;
+  const [viewQuarter, setViewQuarter] = useState(0);
+  useEffect(() => { setViewQuarter(tactic?.quarter ?? 0); }, [tactic?.id, tactic?.quarter]);
 
   const [cuts, setCuts] = useState<TacticCut[]>([]);
   const [title, setTitle] = useState('');
@@ -298,6 +345,33 @@ export default function TacticsPage() {
       if (save) persist(next);
       return next;
     });
+  };
+
+  // 매치 연결. 해제할 때는 지금 보이는 배치를 그대로 1번 장면에 남겨 화면이 튀지 않게 합니다.
+  const linkMatch = (matchId: string | null) => {
+    if (!tactic || !coach) return;
+    if (!matchId && linkedMatch && cuts[0]) {
+      const frozen = syncFromMatch(cuts[0], linkedMatch, viewQuarter);
+      const next = [frozen, ...cuts.slice(1)];
+      setCuts(next);
+      persist(next);
+    }
+    updateTactic(tactic.id, { matchId, quarter: 0 });
+    setCutIdx(0);
+  };
+
+  const pickQuarter = (qi: number) => {
+    setViewQuarter(qi);
+    if (tactic && coach) updateTactic(tactic.id, { quarter: qi });
+  };
+
+  // 우리 팀 포메이션 변경. 연결된 매치는 라인업을 짜기 전일 때만 매치 포메이션도 같이 바꿉니다.
+  const changeOurFormation = (f: string | null) => {
+    if (linkedMatch && cutIdx === 0) {
+      if (f && !hasLineup) updateMatch(linkedMatch.id, { formation: f });
+      return;
+    }
+    applyTeams(f, cut.oppFormation ?? null);
   };
 
   /**
@@ -432,7 +506,10 @@ export default function TacticsPage() {
   }
 
   // ── 상세/편집 ──
-  const cut = cuts[cutIdx] ?? defaultCut();
+  const storedCut = cuts[cutIdx] ?? defaultCut();
+  const synced = !!linkedMatch && cutIdx === 0;
+  const cut = synced ? syncFromMatch(storedCut, linkedMatch!, viewQuarter) : storedCut;
+  const lockedIds = synced ? new Set(cut.markers.filter(m => m.kind === 'player').map(m => m.id)) : undefined;
   const editable = coach && !animating && !playingAll;
   const moveCount = cut.markers.filter(m => m.to).length;
 
@@ -470,6 +547,61 @@ export default function TacticsPage() {
       </div>
 
       <div className="p-3 space-y-3 max-w-[520px] mx-auto">
+        {/* 매치 연결 — 1번 장면의 우리 팀이 매치 포메이션·라인업을 따라갑니다 */}
+        {(coach || linkedMatch) && (
+          <div className="bg-white rounded-2xl shadow-sm p-3">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Link2 size={13} className="text-[#1e3a5f]" />
+              <span className="text-[11px] font-bold text-gray-700">매치 연결</span>
+              {linkedMatch && (
+                <span className="ml-auto text-[10px] font-bold text-green-600">
+                  ● {linkedMatch.formation || '4-2-3-1'} 동기화 중
+                </span>
+              )}
+            </div>
+            {coach ? (
+              <select
+                value={tactic.matchId ?? ''}
+                onChange={e => linkMatch(e.target.value || null)}
+                className="w-full px-2 py-2 border border-gray-200 rounded-xl text-xs font-semibold bg-white"
+              >
+                <option value="">연결 안 함</option>
+                {matches.slice(0, 20).map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.title} ({fmtDate(m.date)}) · {m.formation || '4-2-3-1'}
+                  </option>
+                ))}
+                {tactic.matchId && !linkedMatch && <option value={tactic.matchId}>삭제된 매치</option>}
+              </select>
+            ) : linkedMatch && (
+              <p className="text-xs font-semibold text-gray-700">{linkedMatch.title} ({fmtDate(linkedMatch.date)})</p>
+            )}
+            {linkedMatch && hasLineup && (
+              <div className="flex gap-1 mt-2">
+                {[0, 1, 2, 3].map(qi => (
+                  <button
+                    key={qi}
+                    onClick={() => pickQuarter(qi)}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold ${
+                      viewQuarter === qi ? 'bg-[#1e3a5f] text-white' : 'bg-gray-50 text-gray-500 border border-gray-200'
+                    }`}
+                  >
+                    {qi + 1}Q
+                  </button>
+                ))}
+              </div>
+            )}
+            {linkedMatch && (
+              <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                1번 장면의 우리 팀은 이 매치 {hasLineup ? '라인업(선수 이름 포함)' : '포메이션'}을 따라갑니다.
+                {hasLineup
+                  ? ' 위치를 바꾸려면 라인업 화면에서 옮겨주세요.'
+                  : ' 아래에서 포메이션을 바꾸면 매치 포메이션도 같이 바뀝니다.'}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* 장면 탭 + 재생 */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {cuts.map((_, i) => (
@@ -579,8 +711,10 @@ export default function TacticsPage() {
               </span>
               <select
                 value={cut.formation ?? ''}
-                onChange={e => applyTeams(e.target.value || null, cut.oppFormation ?? null)}
-                className="mt-1 w-full px-2 py-2 border border-gray-200 rounded-xl text-xs font-semibold bg-white"
+                onChange={e => changeOurFormation(e.target.value || null)}
+                disabled={synced && hasLineup}
+                title={synced && hasLineup ? '라인업을 짠 매치는 라인업 화면에서 포메이션을 바꿔주세요' : undefined}
+                className="mt-1 w-full px-2 py-2 border border-gray-200 rounded-xl text-xs font-semibold bg-white disabled:bg-gray-50 disabled:text-gray-400"
               >
                 <option value="" disabled>포메이션 선택</option>
                 <FormationOptions />
@@ -606,6 +740,7 @@ export default function TacticsPage() {
         <TacticsPitch
           cut={cut}
           editable={editable}
+          lockedIds={lockedIds}
           mode={mode}
           animating={animating}
           onPlace={(mid, x, y) =>
