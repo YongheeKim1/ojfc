@@ -1,7 +1,7 @@
 import { db, PUSH_WORKER_URL } from './firebase';
 import {
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
-  query, orderBy
+  query, orderBy, deleteField
 } from 'firebase/firestore';
 import { Member, Guest, Match, Position, Announcement, Feedback, Tactic, DuesMonth, DuesExpense } from './types';
 import { computeAllStats, slotRate, pairRate, slotLinkWeight } from './stats';
@@ -370,6 +370,20 @@ export async function saveMember(member: Omit<Member, 'id' | 'pomCount' | 'creat
 
 export async function updateMember(id: string, updates: Partial<Member>) {
   await safeWrite(() => updateDoc(doc(db, 'members', id), updates as Record<string, never>));
+}
+
+/** 멤버 ID → 프로필 사진 (없으면 null) */
+export function getMemberAvatar(id: string): string | null {
+  return membersCache.find(m => m.id === id)?.avatar ?? null;
+}
+
+/** 내 프로필 사진 저장 (null 이면 삭제) */
+export async function setMyAvatar(dataUrl: string | null): Promise<void> {
+  const me = getCurrentUser();
+  if (!me) return;
+  await safeWrite(() => updateDoc(doc(db, 'members', me.id), {
+    avatar: dataUrl ?? deleteField(),
+  } as unknown as Record<string, never>));
 }
 
 export async function deleteMember(id: string) {

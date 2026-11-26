@@ -30,7 +30,7 @@ function genId() {
 // 이미지 축소
 // ──────────────────────────────────────────
 
-function loadImage(file: File): Promise<HTMLImageElement> {
+export function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();

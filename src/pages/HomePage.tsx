@@ -6,6 +6,7 @@ import { getPositionColor } from '../lib/types';
 import type { Member, Match, Photo } from '../lib/types';
 import { fetchRecentPhotos } from '../lib/photos';
 import VoteStatus from '../components/VoteStatus';
+import Avatar from '../components/Avatar';
 import { computePlayerStats } from '../lib/stats';
 
 // 매치 라인업에 출전한 선수 ID 추출 (POM 투표 후보)
@@ -214,9 +215,7 @@ export default function HomePage() {
             className="block bg-white rounded-2xl shadow-sm p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#1e3a5f] text-white font-bold flex items-center justify-center shrink-0">
-                {mySummary.name.charAt(0)}
-              </div>
+              <Avatar memberId={currentUser?.id} name={mySummary.name} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-gray-800 truncate">{mySummary.name}</p>
                 <p className="text-[11px] text-gray-400">내 기록 보기</p>

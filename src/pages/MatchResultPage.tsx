@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Match, Member, Guest, Position, GoalRecord, getPositionColor } from '../lib/types';
 import VoteStatus from '../components/VoteStatus';
+import Avatar from '../components/Avatar';
 import {
   getMatches,
   updateMatch,
@@ -766,9 +767,7 @@ export default function MatchResultPage() {
                                           ? 'border-[#16a34a] bg-green-50 shadow-md'
                                           : 'border-gray-100 bg-gray-50 hover:border-gray-300'
                                     } ${voteSaved && !isSelected ? 'opacity-60' : ''}`}>
-                                    <div className="w-9 h-9 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-xs font-bold mb-1">
-                                      {player.name.charAt(0)}
-                                    </div>
+                                    <div className="mb-1"><Avatar memberId={player.id} name={player.name} size={36} /></div>
                                     <span className="text-[11px] font-semibold text-gray-900 truncate w-full text-center">{player.name}{isSelf && ' (나)'}</span>
                                     <div className="flex flex-wrap gap-0.5 justify-center mt-0.5">
                                       {player.positions.map((pos) => (
@@ -994,9 +993,7 @@ export default function MatchResultPage() {
                                   const pct = matchTotalVotes > 0 ? (count / matchTotalVotes) * 100 : 0;
                                   return (
                                     <div key={id} className="flex items-center gap-2.5">
-                                      <div className="w-7 h-7 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                                        {name.charAt(0)}
-                                      </div>
+                                      <Avatar memberId={id} name={name} size={28} />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between mb-0.5">
                                           <span className="text-xs font-semibold text-gray-900 truncate">{name}</span>

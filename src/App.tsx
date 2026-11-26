@@ -18,6 +18,7 @@ import DuesPage from './pages/DuesPage';
 import PhotosPage from './pages/PhotosPage';
 import ActivityPage from './pages/ActivityPage';
 import InstallBanner from './components/InstallBanner';
+import Avatar from './components/Avatar';
 import InstallPrompt, { shouldShowInstallPrompt } from './components/InstallPrompt';
 
 const tabs = [
@@ -257,9 +258,7 @@ export default function App() {
             onClick={() => setShowLogoutMenu(!showLogoutMenu)}
             className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <div className="w-7 h-7 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-xs font-bold">
-              {user?.name.charAt(0)}
-            </div>
+            <Avatar memberId={user?.id} name={user?.name ?? ''} size={28} />
             <span className="text-sm font-medium text-gray-700">{user?.name}</span>
           </button>
           {showLogoutMenu && (

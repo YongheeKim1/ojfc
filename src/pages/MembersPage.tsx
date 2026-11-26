@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Avatar from '../components/Avatar';
 import { Plus, X, Pencil, Trash2, Check, Trophy } from 'lucide-react';
 import {
   getMembers,
@@ -343,6 +344,7 @@ export default function MembersPage() {
                   className="flex items-center gap-3 px-5 py-3.5 cursor-pointer active:bg-gray-50"
                   onClick={() => setAnalysisId(isAnalysisOpen ? null : member.id)}
                 >
+                  <Avatar memberId={member.id} name={member.name} size={40} />
                   {/* Name + Stats */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800 truncate">

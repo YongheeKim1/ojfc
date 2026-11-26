@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, Goal, Shield, Star, Mail, Users as UsersIcon, LayoutGrid, Activity as ActivityIcon, ChevronRight } from 'lucide-react';
+import { Trophy, Goal, Shield, Star, Mail, Users as UsersIcon, LayoutGrid, Activity as ActivityIcon, ChevronRight, Camera } from 'lucide-react';
 import {
-  getCurrentUser, getMembers, getMatches, getGuests, getFeedbacksForMember, subscribe,
+  getCurrentUser, getMembers, getMatches, getGuests, getFeedbacksForMember, subscribe, setMyAvatar,
 } from '../lib/store';
 import { computePlayerStats, playerName, isPairReliable } from '../lib/stats';
 import type { Member, Match, Activity } from '../lib/types';
 import { fetchMyActivities, matchWindow } from '../lib/activity';
+import Avatar from '../components/Avatar';
+import { makeAvatar } from '../lib/avatar';
 import { getPositionColor } from '../lib/types';
 
 function formatDateTime(ts: number): string {
@@ -97,9 +99,7 @@ export default function MyPage() {
       {/* Header */}
       <div className="bg-gradient-to-br from-[#1e3a5f] to-[#152d4a] text-white px-5 pt-10 pb-7 rounded-b-3xl shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-xl font-extrabold">
-            {latest.name.charAt(0)}
-          </div>
+          <ProfilePhoto memberId={latest.id} name={latest.name} hasPhoto={!!latest.avatar} />
           <div>
             <h1 className="text-xl font-bold tracking-tight">{latest.name}</h1>
             {latest.createdAt && (
@@ -253,6 +253,56 @@ function ActivityList({ me, matches, activities }: { me: Member; matches: Match[
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// 내 프로필 사진: 원을 누르면 사진 선택 → 가운데를 정사각형으로 잘라 저장
+function ProfilePhoto({ memberId, name, hasPhoto }: { memberId: string; name: string; hasPhoto: boolean }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const onFile = async (file: File) => {
+    setBusy(true);
+    try {
+      await setMyAvatar(await makeAvatar(file));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '사진을 저장하지 못했습니다');
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-1 shrink-0">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }}
+      />
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={busy}
+        aria-label="프로필 사진 변경"
+        className="relative rounded-full ring-2 ring-white/30"
+      >
+        <Avatar memberId={memberId} name={name} size={56} className="bg-white/15 text-white" />
+        <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-white text-[#1e3a5f] flex items-center justify-center shadow">
+          <Camera size={11} />
+        </span>
+        {busy && <span className="absolute inset-0 rounded-full bg-black/40" />}
+      </button>
+      {hasPhoto && (
+        <button
+          onClick={() => { if (confirm('프로필 사진을 삭제할까요?')) setMyAvatar(null); }}
+          className="text-[10px] text-blue-200 underline"
+        >
+          사진 삭제
+        </button>
+      )}
     </div>
   );
 }

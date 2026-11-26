@@ -40,6 +40,7 @@ export interface Member {
   pomCount: number;
   role?: 'admin' | 'coach'; // DB에서만 직접 설정. 없으면 guest. coach=감독(admin 권한 포함 + 공지/편지).
   createdAt: number;
+  avatar?: string;          // 프로필 사진 (160px JPEG data URL, 약 10KB)
 }
 
 // 전술 보드: 컷(장면)들의 연속. 재생 시 컷 사이를 애니메이션으로 이동.

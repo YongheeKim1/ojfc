@@ -10,6 +10,7 @@ import {
   formatBytes, MAX_PHOTOS, type PreparedPhoto,
 } from '../lib/photos';
 import { getCurrentUser } from '../lib/store';
+import Avatar from '../components/Avatar';
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -527,9 +528,7 @@ function PhotoViewer({
             <div className="space-y-2.5 pb-2">
               {comments.map(c => (
                 <div key={c.id} className="flex items-start gap-2">
-                  <div className="w-6 h-6 rounded-full bg-[#1e3a5f] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {c.name.charAt(0)}
-                  </div>
+                  <Avatar memberId={c.memberId} name={c.name} size={24} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs">
                       <span className={`font-bold ${c.memberId === meId ? 'text-[#16a34a]' : 'text-gray-800'}`}>

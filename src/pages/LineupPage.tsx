@@ -30,6 +30,7 @@ import {
   subscribe,
   isAdmin,
   getTactics,
+  getMemberAvatar,
 } from '../lib/store';
 import type { FormationSlot } from '../lib/store';
 import type { Position, QuarterLineup } from '../lib/types';
@@ -245,6 +246,7 @@ function FootballPitch({
           // 자유 이동된 위치면 좌표로 포지션 라벨 재판정
           const moved = isDragging || !!slotPos?.[slot.id];
           const label = moved ? labelFromCoord(pos.x, pos.y) : slot.label;
+          const photo = playerId ? getMemberAvatar(playerId) : null;
 
           return (
             <button
@@ -268,7 +270,7 @@ function FootballPitch({
             >
               {/* Circle */}
               <div
-                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${
                   isSelected
                     ? 'border-[2.5px] border-blue-400 ring-2 ring-blue-400 ring-offset-1'
                     : isEmpty
@@ -290,11 +292,20 @@ function FootballPitch({
                       : '0 3px 10px rgba(0,0,0,0.35)',
                 }}
               >
-                <span className={`text-[10px] font-extrabold ${isEmpty ? 'text-white/70' : 'text-gray-700'}`}>{label}</span>
+                {photo ? (
+                  <>
+                    <img src={photo} alt="" draggable={false} className="w-full h-full rounded-full object-cover pointer-events-none" />
+                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1 rounded bg-[#1e3a5f] text-white text-[8px] font-extrabold leading-tight">
+                      {label}
+                    </span>
+                  </>
+                ) : (
+                  <span className={`text-[10px] font-extrabold ${isEmpty ? 'text-white/70' : 'text-gray-700'}`}>{label}</span>
+                )}
               </div>
               {/* Name pill */}
               <div
-                className={`mt-0.5 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-md transition-all ${
+                className={`${photo ? 'mt-1.5' : 'mt-0.5'} backdrop-blur-sm rounded-full px-2 py-0.5 shadow-md transition-all ${
                   isSelected ? 'bg-blue-100/95 ring-1 ring-blue-400'
                     : isEmpty
                       ? isEmptyHighlight ? 'bg-yellow-100/90 ring-1 ring-yellow-400' : 'bg-white/40'
