@@ -368,7 +368,7 @@ export default function MembersPage() {
                   </div>
                   {/* Position badges */}
                   <div className="flex flex-wrap gap-1 justify-end">
-                    {positions.map(pos => (
+                    {positions.slice(0, 3).map(pos => (
                       <span
                         key={pos}
                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${getPositionColor(pos)}`}
@@ -376,6 +376,11 @@ export default function MembersPage() {
                         {pos}
                       </span>
                     ))}
+                    {positions.length > 3 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-500">
+                        +{positions.length - 3}
+                      </span>
+                    )}
                   </div>
                   {/* Actions (admin only) */}
                   {admin && (
@@ -408,15 +413,40 @@ export default function MembersPage() {
   );
 }
 
+// ── 상세 상단: 큰 프로필 사진(누르면 크게 보기) + 전체 포지션 ──
+function ProfileHeader({ member }: { member: Member }) {
+  const positions = member.positions ?? [];
+  return (
+    <div className="flex items-center gap-3 pt-3 pb-1">
+      <Avatar memberId={member.id} name={member.name} size={64} zoomable />
+      <div className="min-w-0">
+        <p className="text-base font-bold text-gray-800 truncate">{member.name}</p>
+        {positions.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {positions.map(pos => (
+              <span key={pos} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${getPositionColor(pos)}`}>
+                {pos}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── 선수 승률 분석 패널 (쿼터별 결과 기반) ──
 function AnalysisPanel({ memberId, matches, members }: { memberId: string; matches: Match[]; members: Member[] }) {
   const stats = computePlayerStats(memberId, matches);
-  const joined = members.find(m => m.id === memberId)?.createdAt;
+  const member = members.find(m => m.id === memberId);
+  const joined = member?.createdAt;
   const guests = getGuests();
+  const header = member && <ProfileHeader member={member} />;
 
   if (stats.totalPlayed === 0) {
     return (
       <div className="px-5 pb-4 bg-gray-50/70">
+        {header}
         {joined && (
           <p className="text-[10px] text-gray-400 pt-1">가입일 {formatJoinDate(joined)}</p>
         )}
@@ -437,6 +467,7 @@ function AnalysisPanel({ memberId, matches, members }: { memberId: string; match
 
   return (
     <div className="px-5 pb-4 pt-1 bg-gray-50/70 space-y-3">
+      {header}
       {joined && (
         <p className="text-[10px] text-gray-400">가입일 {formatJoinDate(joined)}</p>
       )}
