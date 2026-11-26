@@ -571,10 +571,16 @@ export default function LineupPage() {
     [matchId, activeQuarter, quarters, admin]
   );
 
-  // Handle tap on any player (pitch or resting) - admin만 스왑 가능
+  // 일반 멤버가 탭한 선수 (포지션 정보만 표시)
+  const [infoPlayerId, setInfoPlayerId] = useState<string | null>(null);
+
+  // Handle tap on any player (pitch or resting) - admin만 스왑 가능, 일반 멤버는 정보만
   const handlePlayerTap = useCallback(
     (playerId: string) => {
-      if (!admin) return;
+      if (!admin) {
+        setInfoPlayerId(prev => (prev === playerId ? null : playerId));
+        return;
+      }
       if (swapSelectedId === null) {
         // Nothing selected yet: select this player
         setSwapSelectedId(playerId);
@@ -1069,20 +1075,6 @@ export default function LineupPage() {
         </div>
       </div>
 
-      {/* Swap hint */}
-      {swapSelectedId && (
-        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center justify-between">
-          <span className="text-xs font-medium text-blue-700">
-            선수를 선택했습니다. 교체할 선수를 탭하세요.
-          </span>
-          <button
-            onClick={() => setSwapSelectedId(null)}
-            className="text-xs font-bold text-blue-500 hover:text-blue-700"
-          >
-            취소
-          </button>
-        </div>
-      )}
 
       {/* Quarter tabs */}
       <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10">
@@ -1094,6 +1086,7 @@ export default function LineupPage() {
               onClick={() => {
                 setActiveQuarter(qi);
                 setSwapSelectedId(null);
+                setInfoPlayerId(null);
               }}
               className={`flex-1 py-3 text-sm font-bold transition-colors relative ${
                 activeQuarter === qi
@@ -1112,13 +1105,24 @@ export default function LineupPage() {
         })}
       </div>
 
+      {/* 탭한 선수의 포지션 (운영진은 교체 안내도 함께) */}
+      {currentQ && (swapSelectedId || infoPlayerId) && (
+        <SelectedPlayerBar
+          playerId={(swapSelectedId || infoPlayerId)!}
+          quarter={currentQ}
+          formation={formation}
+          swapping={!!swapSelectedId}
+          onClose={() => { setSwapSelectedId(null); setInfoPlayerId(null); }}
+        />
+      )}
+
       {/* Pitch */}
       <div className="px-3 pt-4 pb-2">
         {currentQ && (
           <FootballPitch
             lineup={currentQ.playing}
             formation={formation}
-            selectedPlayerId={swapSelectedId}
+            selectedPlayerId={swapSelectedId || infoPlayerId}
             onPlayerTap={(slotId, playerId) => {
               if (playerId) {
                 // 선수가 있는 슬롯 탭 → 일반 스왑
@@ -1318,6 +1322,68 @@ export default function LineupPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── 탭한 선수의 등록 포지션과 지금 자리 ───
+// 포지션 대분류(DF 등)로 등록한 선수도 세부 자리와 비교할 수 있게 펼칩니다
+const POSITION_FAMILY: Record<string, string[]> = {
+  GK: ['GK'],
+  DF: ['LB', 'CB', 'RB'],
+  MF: ['CDM', 'CM', 'CAM', 'LM', 'RM'],
+  FW: ['LW', 'RW', 'ST', 'CF'],
+};
+
+function SelectedPlayerBar({
+  playerId, quarter, formation, swapping, onClose,
+}: {
+  playerId: string;
+  quarter: { playing: Record<string, string>; resting: string[]; slotPos?: Record<string, { x: number; y: number }> };
+  formation: string;
+  swapping: boolean;
+  onClose: () => void;
+}) {
+  const info = getPlayerInfo(playerId);
+  if (!info) return null;
+
+  // 지금 자리: 옮긴 자리면 좌표로, 아니면 포메이션 자리 이름
+  const slotId = Object.entries(quarter.playing).find(([, pid]) => pid === playerId)?.[0] ?? null;
+  let spot: string | null = null;
+  if (slotId) {
+    const moved = quarter.slotPos?.[slotId];
+    const slot = (FORMATIONS[formation] || FORMATIONS['4-2-3-1']).find(s => s.id === slotId);
+    spot = moved ? labelFromCoord(moved.x, moved.y) : slot?.label ?? null;
+  }
+  const registered = new Set<string>(info.positions.flatMap(p => [p, ...(POSITION_FAMILY[p] || [])]));
+  const isOwn = spot ? registered.has(spot) : null;
+
+  return (
+    <div className="bg-blue-50 border-b border-blue-200 px-4 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-bold text-gray-800 truncate">{info.name}</span>
+        <span className="flex items-center gap-0.5 flex-wrap">
+          {info.positions.length > 0
+            ? info.positions.map(pos => <PositionBadge key={pos} position={pos} />)
+            : <span className="text-[10px] text-gray-400">등록 포지션 없음</span>}
+        </span>
+        <button onClick={onClose} className="ml-auto text-xs font-bold text-blue-500 hover:text-blue-700 shrink-0">
+          {swapping ? '취소' : '닫기'}
+        </button>
+      </div>
+      <p className="text-[11px] mt-1 text-gray-600">
+        {spot === null ? (
+          '이번 쿼터 휴식'
+        ) : (
+          <>
+            지금 자리 <b>{spot}</b>
+            {isOwn
+              ? <span className="ml-1.5 text-green-700 font-bold">· 원래 포지션</span>
+              : <span className="ml-1.5 text-amber-700 font-bold">· 원래 포지션 아님</span>}
+          </>
+        )}
+        {swapping && <span className="text-blue-700"> · 교체할 선수를 탭하세요</span>}
+      </p>
     </div>
   );
 }

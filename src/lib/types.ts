@@ -48,7 +48,7 @@ export interface TacticMarker {
   label: string;          // 마커에 표시할 글자 (GK, LCB, 공 ...)
   x: number;              // 시작 위치 0~100 (%)
   y: number;
-  kind?: 'player' | 'ball';
+  kind?: 'player' | 'ball' | 'opponent';
   to?: { x: number; y: number }; // 이 장면에서의 이동 목표 (재생 시 여기로 움직임)
 }
 
@@ -60,6 +60,8 @@ export interface TacticCut {
   markers: TacticMarker[];
   arrows: TacticArrow[];
   note: string;           // 컷 설명 (시청자가 읽을 짧은 글)
+  formation?: string;          // 우리 팀 포메이션 (선택 표시용)
+  oppFormation?: string | null; // 상대팀 포메이션 (없으면 상대팀 없음)
 }
 
 export interface Tactic {

@@ -4,7 +4,11 @@ import {
   Clapperboard, Plus, Play, Square, Share2, Trash2, ChevronLeft,
   Hand, MoveUpRight, Eraser, ArrowRightToLine,
 } from 'lucide-react';
-import { getTactics, saveTactic, updateTactic, deleteTactic, getCurrentUser, subscribe, isCoach } from '../lib/store';
+import {
+  getTactics, saveTactic, updateTactic, deleteTactic, getCurrentUser, subscribe, isCoach,
+  FORMATIONS, FORMATIONS_BY_SIZE, TEAM_SIZES,
+} from '../lib/store';
+import { labelFromCoord } from '../lib/stats';
 import type { Tactic, TacticCut, TacticMarker } from '../lib/types';
 
 // 기본 장면: 4-2-3-1 배치 + 공
@@ -21,6 +25,42 @@ function defaultCut(): TacticCut {
     arrows: [],
     note: '',
   };
+}
+
+// 포메이션 좌표(공격수 y≈22 ~ 골키퍼 y≈92)를 킥오프 때처럼 자기 진영(y 54~92)에 모읍니다.
+// 그대로 쓰면 우리 공격수와 상대 수비수가 같은 자리에 겹쳐 이름이 가려집니다.
+function toOwnHalf(y: number): number {
+  return Math.round((54 + ((y - 22) * (92 - 54)) / (92 - 22)) * 10) / 10;
+}
+
+// 포메이션 → 마커. 상대팀은 위쪽 골대를 지키도록 위아래·좌우를 뒤집습니다.
+function buildTeam(formation: string, side: 'us' | 'opp'): TacticMarker[] {
+  const slots = FORMATIONS[formation] || [];
+  return slots.map(sl => {
+    const y = toOwnHalf(sl.y);
+    return side === 'us'
+      ? { id: `p-${sl.id}`, label: sl.label, x: sl.x, y, kind: 'player' as const }
+      : { id: `o-${sl.id}`, label: sl.label, x: 100 - sl.x, y: 100 - y, kind: 'opponent' as const };
+  });
+}
+
+// 옮긴 자리에 맞춰 자리 이름을 다시 붙입니다 (라인업과 같은 규칙)
+function relabel(m: TacticMarker, x: number, y: number): string {
+  if (m.kind === 'player') return labelFromCoord(x, y);
+  if (m.kind === 'opponent') return labelFromCoord(100 - x, 100 - y);
+  return m.label;
+}
+
+function FormationOptions() {
+  return (
+    <>
+      {TEAM_SIZES.map(n => (
+        <optgroup key={n} label={`${n}명`}>
+          {(FORMATIONS_BY_SIZE[n] || []).map(f => <option key={f} value={f}>{f}</option>)}
+        </optgroup>
+      ))}
+    </>
+  );
 }
 
 function fmtDate(ts: number): string {
@@ -109,7 +149,7 @@ function TacticsPitch({
       const pv = preview && preview.id === m.id ? preview : null;
       const to = pv ?? m.to;
       if (!to) return null;
-      return { id: m.id, isBall: m.kind === 'ball', x1: m.x, y1: m.y, x2: to.x, y2: to.y };
+      return { id: m.id, isBall: m.kind === 'ball', isOpp: m.kind === 'opponent', x1: m.x, y1: m.y, x2: to.x, y2: to.y };
     })
     .filter((a): a is NonNullable<typeof a> => !!a);
 
@@ -143,14 +183,17 @@ function TacticsPitch({
           <marker id="mv-b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#fcd34d" />
           </marker>
+          <marker id="mv-o" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#fca5a5" />
+          </marker>
         </defs>
         {!animating && moveArrows.map(a => (
           <line
             key={a.id}
             x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2}
-            stroke={a.isBall ? '#fcd34d' : '#7dd3fc'}
+            stroke={a.isBall ? '#fcd34d' : a.isOpp ? '#fca5a5' : '#7dd3fc'}
             strokeDasharray={a.isBall ? '1.2 1.6' : '2.4 1.6'}
-            markerEnd={a.isBall ? 'url(#mv-b)' : 'url(#mv-p)'}
+            markerEnd={a.isBall ? 'url(#mv-b)' : a.isOpp ? 'url(#mv-o)' : 'url(#mv-p)'}
             vectorEffect="non-scaling-stroke" strokeLinecap="round"
             style={{ strokeWidth: 2.5 }}
           />
@@ -179,14 +222,20 @@ function TacticsPitch({
             onPointerDown={e => down(e, m.id)}
           >
             {isBall ? (
-              <div className="w-5 h-5 rounded-full bg-white border-2 border-gray-800 shadow-md flex items-center justify-center">
-                <div className="w-2 h-2 bg-gray-800" style={{ clipPath: 'polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%)' }} />
+              <div className="w-4 h-4 rounded-full bg-white border-2 border-gray-800 shadow-md flex items-center justify-center">
+                <div className="w-1.5 h-1.5 bg-gray-800" style={{ clipPath: 'polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%)' }} />
+              </div>
+            ) : m.kind === 'opponent' ? (
+              <div className={`w-7 h-7 rounded-full bg-red-500 border-2 shadow-md flex items-center justify-center ${
+                hasMove && !animating ? 'border-red-200' : 'border-red-700'
+              }`}>
+                <span className="text-[8px] font-extrabold text-white leading-none">{m.label}</span>
               </div>
             ) : (
-              <div className={`w-10 h-10 rounded-full bg-white/95 border-2 shadow-lg flex items-center justify-center ${
+              <div className={`w-7 h-7 rounded-full bg-white/95 border-2 shadow-md flex items-center justify-center ${
                 hasMove && !animating ? 'border-sky-300' : 'border-white'
               }`}>
-                <span className="text-[9px] font-extrabold text-gray-800">{m.label}</span>
+                <span className="text-[8px] font-extrabold text-gray-800 leading-none">{m.label}</span>
               </div>
             )}
           </div>
@@ -225,6 +274,8 @@ export default function TacticsPage() {
         markers: c.markers.map(m => ({ ...m })),
         arrows: c.arrows || [],
         note: c.note,
+        formation: c.formation,
+        oppFormation: c.oppFormation ?? null,
       })));
       setTitle(tactic.title);
       setCutIdx(0);
@@ -243,6 +294,32 @@ export default function TacticsPage() {
       const next = prev.map((c, i) => (i === idx ? { ...c, ...patch } : c));
       if (save) persist(next);
       return next;
+    });
+  };
+
+  /**
+   * 포메이션 적용. ours 가 null 이면 우리 팀은 그대로 두고, opp 는 그 값으로 맞춥니다.
+   * 바꾸는 팀의 위치와 이동은 초기화되고, 공과 다른 팀은 그대로 둡니다.
+   */
+  const applyTeams = (ours: string | null, opp: string | null) => {
+    const current = cuts[cutIdx];
+    if (!current) return;
+    const changingOpp = (current.oppFormation ?? null) !== opp;
+    const touched = current.markers.filter(m =>
+      (ours && m.kind === 'player') || (changingOpp && m.kind === 'opponent'));
+    if (touched.some(m => m.to) && !confirm('바꾸는 팀의 위치와 이동 표시가 초기화됩니다. 계속할까요?')) return;
+
+    const keep = current.markers.filter(m =>
+      !(ours && m.kind === 'player') && !(changingOpp && m.kind === 'opponent'));
+    const markers = [
+      ...(ours ? buildTeam(ours, 'us') : []),
+      ...keep,
+      ...(changingOpp && opp ? buildTeam(opp, 'opp') : []),
+    ];
+    patchCut(cutIdx, {
+      markers,
+      formation: ours ?? current.formation,
+      oppFormation: opp,
     });
   };
 
@@ -412,7 +489,10 @@ export default function TacticsPage() {
                   const { to, ...rest } = m;
                   return { ...rest, x: to?.x ?? m.x, y: to?.y ?? m.y };
                 });
-                const dup: TacticCut = { markers: nextMarkers, arrows: [], note: '' };
+                const dup: TacticCut = {
+                  markers: nextMarkers, arrows: [], note: '',
+                  formation: cut.formation, oppFormation: cut.oppFormation ?? null,
+                };
                 const next = [...cuts.slice(0, cutIdx + 1), dup, ...cuts.slice(cutIdx + 1)];
                 setCuts(next); persist(next); setCutIdx(cutIdx + 1);
               }}
@@ -446,7 +526,7 @@ export default function TacticsPage() {
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setMode('move')}
-              className={`flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold ${
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-bold whitespace-nowrap ${
                 mode === 'move' ? 'bg-sky-600 text-white' : 'bg-white text-gray-500 border border-gray-200'
               }`}
             >
@@ -454,7 +534,7 @@ export default function TacticsPage() {
             </button>
             <button
               onClick={() => setMode('place')}
-              className={`flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold ${
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-bold whitespace-nowrap ${
                 mode === 'place' ? 'bg-[#1e3a5f] text-white' : 'bg-white text-gray-500 border border-gray-200'
               }`}
             >
@@ -465,7 +545,7 @@ export default function TacticsPage() {
                 markers: cut.markers.map(m => { const { to, ...rest } = m; void to; return rest; }),
               })}
               disabled={moveCount === 0}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold bg-white text-gray-500 border border-gray-200 disabled:opacity-40"
+              className="flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-bold whitespace-nowrap bg-white text-gray-500 border border-gray-200 disabled:opacity-40"
             >
               <Eraser size={13} /> 이동 지우기
             </button>
@@ -478,11 +558,43 @@ export default function TacticsPage() {
                   setCuts(next); persist(next);
                   setCutIdx(Math.max(0, cutIdx - 1));
                 }}
-                className="px-3 py-2 rounded-xl text-[11px] font-bold text-red-500 bg-white border border-gray-200"
+                className="px-2.5 py-2 rounded-xl text-[11px] font-bold whitespace-nowrap text-red-500 bg-white border border-gray-200"
               >
                 장면 삭제
               </button>
             )}
+          </div>
+        )}
+
+        {/* 팀 구성 (감독) — 포메이션을 고르면 이 장면의 배치를 그 모양으로 바꿉니다 */}
+        {coach && !animating && !playingAll && (
+          <div className="bg-white rounded-2xl shadow-sm p-3 grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-white border-2 border-gray-300" /> 우리 팀
+              </span>
+              <select
+                value={cut.formation ?? ''}
+                onChange={e => applyTeams(e.target.value || null, cut.oppFormation ?? null)}
+                className="mt-1 w-full px-2 py-2 border border-gray-200 rounded-xl text-xs font-semibold bg-white"
+              >
+                <option value="" disabled>포메이션 선택</option>
+                <FormationOptions />
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> 상대팀
+              </span>
+              <select
+                value={cut.oppFormation ?? ''}
+                onChange={e => applyTeams(null, e.target.value || null)}
+                className="mt-1 w-full px-2 py-2 border border-gray-200 rounded-xl text-xs font-semibold bg-white"
+              >
+                <option value="">없음</option>
+                <FormationOptions />
+              </select>
+            </label>
           </div>
         )}
 
@@ -493,7 +605,9 @@ export default function TacticsPage() {
           mode={mode}
           animating={animating}
           onPlace={(mid, x, y) =>
-            patchCut(cutIdx, { markers: cut.markers.map(m => (m.id === mid ? { ...m, x, y } : m)) })
+            patchCut(cutIdx, {
+              markers: cut.markers.map(m => (m.id === mid ? { ...m, x, y, label: relabel(m, x, y) } : m)),
+            })
           }
           onSetMove={(mid, x, y) =>
             patchCut(cutIdx, { markers: cut.markers.map(m => (m.id === mid ? { ...m, to: { x, y } } : m)) })
@@ -535,7 +649,7 @@ export default function TacticsPage() {
         {coach && !animating && !playingAll && (
           <p className="text-center text-[10px] text-gray-400 leading-relaxed">
             <b>이동 지정</b>: 선수·공에서 끌면 화살표가 생기고, 재생하면 그 방향으로 움직입니다 (탭하면 삭제)<br />
-            <b>배치</b>: 시작 위치를 옮깁니다 · <b>다음 장면</b>: 이동이 끝난 자리에서 이어지는 장면을 만듭니다
+            <b>배치</b>: 시작 위치를 옮깁니다 (자리 이름도 바뀝니다) · <b>다음 장면</b>: 이동이 끝난 자리에서 이어지는 장면을 만듭니다
           </p>
         )}
       </div>
