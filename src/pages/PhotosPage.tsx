@@ -528,7 +528,7 @@ function PhotoViewer({
             <div className="space-y-2.5 pb-2">
               {comments.map(c => (
                 <div key={c.id} className="flex items-start gap-2">
-                  <Avatar memberId={c.memberId} name={c.name} size={24} />
+                  <Avatar memberId={c.memberId} name={c.name} size={24} zoomable />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs">
                       <span className={`font-bold ${c.memberId === meId ? 'text-[#16a34a]' : 'text-gray-800'}`}>

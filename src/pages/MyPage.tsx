@@ -8,6 +8,7 @@ import { computePlayerStats, playerName, isPairReliable } from '../lib/stats';
 import type { Member, Match, Activity } from '../lib/types';
 import { fetchMyActivities, matchWindow } from '../lib/activity';
 import Avatar from '../components/Avatar';
+import { openAvatar } from '../components/AvatarViewer';
 import { makeAvatar } from '../lib/avatar';
 import { getPositionColor } from '../lib/types';
 
@@ -257,7 +258,7 @@ function ActivityList({ me, matches, activities }: { me: Member; matches: Match[
   );
 }
 
-// 내 프로필 사진: 원을 누르면 사진 선택 → 가운데를 정사각형으로 잘라 저장
+// 내 프로필 사진: 사진이 있으면 크게 보기(변경·삭제 포함), 없으면 바로 사진 선택
 function ProfilePhoto({ memberId, name, hasPhoto }: { memberId: string; name: string; hasPhoto: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -265,7 +266,8 @@ function ProfilePhoto({ memberId, name, hasPhoto }: { memberId: string; name: st
   const onFile = async (file: File) => {
     setBusy(true);
     try {
-      await setMyAvatar(await makeAvatar(file));
+      const { small, large } = await makeAvatar(file);
+      await setMyAvatar(small, large);
     } catch (err) {
       alert(err instanceof Error ? err.message : '사진을 저장하지 못했습니다');
     } finally {
@@ -275,7 +277,7 @@ function ProfilePhoto({ memberId, name, hasPhoto }: { memberId: string; name: st
   };
 
   return (
-    <div className="flex flex-col items-center gap-1 shrink-0">
+    <div className="shrink-0">
       <input
         ref={fileRef}
         type="file"
@@ -284,9 +286,9 @@ function ProfilePhoto({ memberId, name, hasPhoto }: { memberId: string; name: st
         onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }}
       />
       <button
-        onClick={() => fileRef.current?.click()}
+        onClick={() => (hasPhoto ? openAvatar(memberId, name) : fileRef.current?.click())}
         disabled={busy}
-        aria-label="프로필 사진 변경"
+        aria-label={hasPhoto ? '프로필 사진 크게 보기' : '프로필 사진 등록'}
         className="relative rounded-full ring-2 ring-white/30"
       >
         <Avatar memberId={memberId} name={name} size={56} className="bg-white/15 text-white" />
@@ -295,14 +297,6 @@ function ProfilePhoto({ memberId, name, hasPhoto }: { memberId: string; name: st
         </span>
         {busy && <span className="absolute inset-0 rounded-full bg-black/40" />}
       </button>
-      {hasPhoto && (
-        <button
-          onClick={() => { if (confirm('프로필 사진을 삭제할까요?')) setMyAvatar(null); }}
-          className="text-[10px] text-blue-200 underline"
-        >
-          사진 삭제
-        </button>
-      )}
     </div>
   );
 }

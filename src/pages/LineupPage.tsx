@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import Avatar from '../components/Avatar';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   Users,
@@ -1404,6 +1405,7 @@ function SelectedPlayerBar({
   return (
     <div className="bg-blue-50 border-b border-blue-200 px-4 py-2.5">
       <div className="flex items-center gap-2">
+        <Avatar memberId={playerId} name={info.name} size={30} zoomable />
         <span className="text-sm font-bold text-gray-800 truncate">{info.name}</span>
         <span className="flex items-center gap-0.5 flex-wrap">
           {info.positions.length > 0

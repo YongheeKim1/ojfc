@@ -344,7 +344,7 @@ export default function MembersPage() {
                   className="flex items-center gap-3 px-5 py-3.5 cursor-pointer active:bg-gray-50"
                   onClick={() => setAnalysisId(isAnalysisOpen ? null : member.id)}
                 >
-                  <Avatar memberId={member.id} name={member.name} size={40} />
+                  <Avatar memberId={member.id} name={member.name} size={40} zoomable />
                   {/* Name + Stats */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800 truncate">

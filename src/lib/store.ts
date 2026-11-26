@@ -1,6 +1,6 @@
 import { db, PUSH_WORKER_URL } from './firebase';
 import {
-  collection, doc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot,
   query, orderBy, deleteField
 } from 'firebase/firestore';
 import { Member, Guest, Match, Position, Announcement, Feedback, Tactic, DuesMonth, DuesExpense } from './types';
@@ -377,13 +377,27 @@ export function getMemberAvatar(id: string): string | null {
   return membersCache.find(m => m.id === id)?.avatar ?? null;
 }
 
-/** 내 프로필 사진 저장 (null 이면 삭제) */
-export async function setMyAvatar(dataUrl: string | null): Promise<void> {
+/**
+ * 내 프로필 사진 저장 (small 이 null 이면 삭제).
+ * 작은 사진은 멤버 정보에, 크게 보기용은 avatars/{멤버ID} 에 따로 둡니다.
+ */
+export async function setMyAvatar(small: string | null, large?: string): Promise<void> {
   const me = getCurrentUser();
   if (!me) return;
+  if (small && large) {
+    await safeWrite(() => setDoc(doc(db, 'avatars', me.id), { data: large, updatedAt: Date.now() }));
+  } else if (!small) {
+    await safeWrite(() => deleteDoc(doc(db, 'avatars', me.id)));
+  }
   await safeWrite(() => updateDoc(doc(db, 'members', me.id), {
-    avatar: dataUrl ?? deleteField(),
+    avatar: small ?? deleteField(),
   } as unknown as Record<string, never>));
+}
+
+/** 크게 보기용 프로필 사진 (없으면 null) — 사진을 눌렀을 때만 읽습니다 */
+export async function fetchAvatarLarge(memberId: string): Promise<string | null> {
+  const snap = await getDoc(doc(db, 'avatars', memberId));
+  return snap.exists() ? (snap.data().data as string) : null;
 }
 
 export async function deleteMember(id: string) {

@@ -19,6 +19,7 @@ import PhotosPage from './pages/PhotosPage';
 import ActivityPage from './pages/ActivityPage';
 import InstallBanner from './components/InstallBanner';
 import Avatar from './components/Avatar';
+import AvatarViewer from './components/AvatarViewer';
 import InstallPrompt, { shouldShowInstallPrompt } from './components/InstallPrompt';
 
 const tabs = [
@@ -238,6 +239,9 @@ export default function App() {
     <div className="w-full min-h-screen bg-gray-50 relative">
       {/* 알림 권한 배너 */}
       <InstallBanner />
+
+      {/* 프로필 사진 크게 보기 */}
+      <AvatarViewer />
 
       {/* 설치 안내 (브라우저 접속 시) */}
       {showInstall && <InstallPrompt onClose={() => setShowInstall(false)} />}
