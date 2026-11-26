@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Star, Check, Megaphone, Images, ChevronRight, MessageCircle } from 'lucide-react';
+import { Trophy, Star, Megaphone, Images, ChevronRight, MessageCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getMembers, getMatches, getCurrentUser, subscribe, getGuestsByMatch, updateMatch, getAnnouncements } from '../lib/store';
 import { getPositionColor } from '../lib/types';
 import type { Member, Match, Photo } from '../lib/types';
 import { fetchRecentPhotos } from '../lib/photos';
+import VoteStatus from '../components/VoteStatus';
 import { computePlayerStats } from '../lib/stats';
 
 // 매치 라인업에 출전한 선수 ID 추출 (POM 투표 후보)
@@ -161,18 +162,7 @@ export default function HomePage() {
               {votablePlayers.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-4">라인업에 배치된 선수가 없습니다.</p>
               ) : hasVoted ? (
-                <div className="text-center py-3">
-                  <div className="w-12 h-12 mx-auto mb-2 bg-green-100 rounded-full flex items-center justify-center">
-                    <Check className="w-6 h-6 text-green-600" />
-                  </div>
-                  <p className="text-sm font-bold text-gray-700">투표 완료!</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    내가 선택한 MVP:{' '}
-                    <span className="font-semibold text-yellow-600">
-                      {votablePlayers.find(p => p.id === myVoteId)?.name || '?'}
-                    </span>
-                  </p>
-                </div>
+                <VoteStatus votes={votingMatch.votes} candidates={votablePlayers} myVoteId={myVoteId ?? null} />
               ) : (
                 <>
                   <p className="text-xs text-gray-500 mb-3 text-center">이번 경기의 MVP를 선택하세요!</p>

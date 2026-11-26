@@ -18,6 +18,7 @@ import {
   Share2,
 } from 'lucide-react';
 import { Match, Member, Guest, Position, GoalRecord, getPositionColor } from '../lib/types';
+import VoteStatus from '../components/VoteStatus';
 import {
   getMatches,
   updateMatch,
@@ -788,8 +789,15 @@ export default function MatchResultPage() {
                             </div>
                           )}
 
+                          {/* 투표를 마쳤으면: 투표 완료 + 현재 투표 상황 */}
+                          {voteSaved && (
+                            <div className="mt-3">
+                              <VoteStatus votes={votingMatch.votes} candidates={votablePlayers} myVoteId={selectedVote} />
+                            </div>
+                          )}
+
                           {/* 현재 1위 (동률이면 공동) */}
-                          {totalVotesForVoting > 0 && (() => {
+                          {!voteSaved && totalVotesForVoting > 0 && (() => {
                             const maxV = Math.max(0, ...Object.values(voteCounts));
                             let leaders = Object.entries(voteCounts)
                               .filter(([, c]) => c === maxV).map(([id]) => id);
@@ -824,7 +832,7 @@ export default function MatchResultPage() {
                           })()}
 
                           {/* Vote percentage bars */}
-                          {totalVotesForVoting > 0 && (
+                          {!voteSaved && totalVotesForVoting > 0 && (
                             <div className="mt-3 space-y-1.5">
                               {votablePlayers
                                 .filter((p) => (voteCounts[p.id] || 0) > 0)
@@ -850,9 +858,6 @@ export default function MatchResultPage() {
                               className="mt-3 w-full py-2 bg-[#16a34a] text-white rounded-lg text-xs font-bold hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
                               투표하기
                             </button>
-                          )}
-                          {voteSaved && (
-                            <p className="mt-2 text-center text-[11px] text-green-600 font-medium">투표가 완료되었습니다!</p>
                           )}
                         </div>
 
